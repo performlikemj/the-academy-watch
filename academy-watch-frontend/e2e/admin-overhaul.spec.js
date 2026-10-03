@@ -44,7 +44,7 @@ test.describe.serial('Admin overhaul smoke', () => {
     await setAdminKey(page, env.adminKey)
 
     const pages = [
-      ['/admin/dashboard', /Admin|Dashboard|Welcome|at a glance/i],
+      ['/admin/dashboard', /Today/i],
       ['/admin/inbox', /Inbox/i],
       ['/admin/operations', /Operations/i],
       ['/admin/seeding', /Seeding/i],

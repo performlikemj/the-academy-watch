@@ -270,3 +270,24 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   past due is separate. Total subscriptions include scouts and clubs, while Business
   labels the club-only count. Legacy billing summary retains its OFF contract.
 - No schema, dependency, production flag or provider-send change in B3X.
+
+## Calm admin area and list filters (CALM-1)
+
+- No schema, dependency, flag or provider-send change. The four page flags gate exactly what they gated.
+- GET `/api/admin/people` adds `club=<program id>|none`, `standing=waiting`, `verified=yes|no`,
+  `joined=7d|30d|year`, `seen=7d|30d|quiet`. Every filter is an `IN` subquery on the one list query. A club's people
+  are its active managers with an approved source claim, plus active staff grants while `CLUB_STAFF_ACCESS_ENABLED`
+  is on — the same rule the role labels use. `waiting` = a pending scout verification, player-profile claim or club
+  claim; rows carry `waiting` (one batched query). Unknown values answer 400 with a JSON error.
+- GET `/api/admin/people/clubs?club_q=&<the list's filters>` returns `{clubs: [{id, name, count}], no_club}` in one
+  statement: counted under the other filters, at most 50 clubs, the chosen club always included.
+- GET `/api/admin/programs` adds `status=pending|approved|rejected|suspended|hidden`, `verified=yes|no`,
+  `country=<name>`; GET `/api/admin/programs/countries` returns `{countries: [{value, count}]}` (one grouped query).
+- Type / Status / More choices carry no counts (each would need its own query per list).
+- Overview links for club profile revisions and club updates point at `/admin/funding?tab=content`: content review
+  left the approval view. The approval view (`/admin/funding?tab=claims&claim=<id>`) reuses the existing
+  approve / reject / revoke routes; its "N of 11 checks pass" mirrors `_evidence_meets_bar`, so Approve is offered
+  only when the server would accept it. There is no "ask the club for the missing check" action.
+- Today and the funding page are not flag-gated; with all four flags off Today asks for the legacy inbox counts and
+  billing summary as before, plus the pending club claims and scout verifications it now names.
+- Suspension reason and actor remain on the admin detail DTO only.

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { formatDisplayDate } from '@/lib/display-date'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 export function useControlFlags() {
@@ -75,10 +76,11 @@ export function QuietEmpty({ children }) {
     return <p className="border-b border-hairline-dark py-8 text-sm text-muted-dark">{children}</p>
 }
 
-export const rowClass = 'w-full min-w-0 border-b border-hairline-dark px-2 py-4 text-left hover:bg-chalk/[0.04] focus-visible:outline-2 focus-visible:outline-gold'
+export const rowClass = 'w-full min-w-0 [overflow-wrap:anywhere] border-b border-hairline-dark px-2 py-4 text-left hover:bg-chalk/[0.04] focus-visible:outline-2 focus-visible:outline-gold'
 export const splitClass = 'grid min-w-0 gap-8 xl:grid-cols-[minmax(0,1fr)_360px]'
 export const metaClass = 'font-mono text-[11px] uppercase tracking-[.14em] text-muted-dark'
-export const stamp = value => value ? new Date(value).toLocaleString() : 'Never'
+// UK dates, as everywhere else in admin (lib/display-date).
+export const stamp = value => formatDisplayDate(value, { withTime: true, fallback: 'Never' })
 
 export function ReasonAction({ label, action, onDone, disabled = false, target, warning }) {
     const [reason, setReason] = useState('')

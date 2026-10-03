@@ -9,6 +9,43 @@ Stripe.js, framer-motion, `d3-force-3d` for journey maps. Pages in `src/pages/` 
 = 14 pages under `admin/`, plus `writer/` and public Player/Team pages). Radix-based components in
 `src/components/ui/`. All API calls go through `src/lib/api.js`.
 
+## House rules — calm pages
+
+Every app page (admin, club console, scout desk, account pages) follows these seven rules. They exist because pages
+had grown to seven layers of chrome before any content, with everything boxed at equal weight. A page serves one
+story — say who opens it and what they leave having done — and anything that does not serve it is collapsed or gone.
+
+1. **One title.** Sans, about 28px, weight 600, plus at most one short line. The serif display face is only for the
+   public hero and a player's name. Detail-panel names are 20px.
+2. **One primary action** per page or panel. Everything else goes in a ⋯ menu.
+3. **Lead with the decision or the summary.** Details are collapsed (`<details>` / the existing disclosure) and a
+   group with a problem starts open.
+4. **Whitespace and hairlines, not boxes.** Status is a dot plus plain words, never a wall of coloured badges.
+5. **Hide what is empty.** Say "Everything else is clear" instead of listing zeros. A number with no source is left
+   out, never shown as 0.
+6. **One navigation per area**, slim headers, and no marketing footer inside app areas.
+7. **No mono ALL-CAPS eyebrows or micro-labels.** The only exception is a data table's column heads.
+
+Building blocks, admin (night surface): `CalmHeader`, `CalmSection`, `CalmDetails`, `StatusDot` / `StatusWords` and the
+`calm*Button` classes in `src/components/admin/ControlRoom.jsx`. `AdminPageHeader`, `SectionTitle` and `BigStat` in the
+same file are the old serif/mono blocks — do not use them on a page you touch.
+
+**Lists are filtered with the one `FilterBar`** (`src/components/filter/FilterBar.jsx`) — never a second filter idiom:
+
+- A pill reads `Label: Value ▾`; with a value it turns solid and gains ✕; "Clear" and the result count sit at the right.
+  A `group` is the "More" pill; a `neutral` filter (sort order) never turns solid and is not cleared.
+- **Filters live in the address bar** through `useUrlFilters(defaults)` (`src/hooks/useUrlFilters.js`): a pick pushes a
+  history entry (back/forward walk the filters), typing replaces, defaults stay out of the URL, and a reload or a
+  shared link shows the same list. Reset `offset` in the same change as the filter.
+- **The server filters.** Add the filter to the endpoint (inside the one list query — an `IN` subquery, no per-row
+  queries) when it cannot answer it yet; never trim a page of rows on the client. A searchable filter passes
+  `loadOptions(text)` so type-ahead is the server's too.
+- **Counts per option come from the server and cost at most one extra statement per list** (see
+  `people_clubs` / `program_countries` in `routes/admin_control.py`: counted under the *other* filters in force, the
+  chosen option always included so its pill can show its name). If a count would need more, ship the filter without
+  counts.
+- While the next answer loads, keep the last rows and count on screen (dimmed) so nothing jumps.
+
 ## CI gates (mirror before pushing)
 
 - `../scripts/security/check_frontend_dependencies.sh` from this directory (or

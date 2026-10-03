@@ -277,6 +277,7 @@ def test_people_allowlist_derives_roles_without_private_notes(control_app):
         "roles",
         "programs",
         "approved_claims",
+        "waiting",
         "scout_verification",
     }
     assert response.headers["Cache-Control"] == "no-store"

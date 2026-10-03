@@ -19,8 +19,6 @@ import { APIService } from '@/lib/api'
 
 const SIDEBAR_COLLAPSE_KEY = 'academy_watch_admin_sidebar_collapsed'
 
-const todayLabel = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
-
 export function AdminLayout() {
     const { token, isAdmin, hasApiKey } = useAuth()
     useNightSurface()
@@ -220,14 +218,12 @@ export function AdminLayout() {
                             >
                                 {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
                             </Button>
-                            <p className="eyebrow truncate">
+                            <p className="truncate text-sm text-muted-dark">
                                 <span className="sr-only">Admin Dashboard · </span>
-                                Control room · {todayLabel()}
+                                Control room
                             </p>
                         </div>
-                        <div className="flex items-center gap-5 font-mono text-[11px] uppercase tracking-[0.12em]">
-                            <span className="hidden text-muted-dark sm:inline">Signed in as admin</span>
-                        </div>
+                        <span className="hidden text-[13px] text-muted-dark sm:inline">Signed in as admin</span>
                     </header>
                     <div className="relative flex-1">
                         <SyncOverlay />

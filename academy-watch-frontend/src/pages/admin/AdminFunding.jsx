@@ -1,6 +1,6 @@
 import { formatDisplayDate } from '@/lib/display-date'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
     AlertTriangle,
     BellRing,
@@ -34,7 +34,11 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { AdminPageHeader, BigStat } from '@/components/admin/ControlRoom'
+import { CalmDetails, CalmHeader, StatusDot, calmPanelClass, calmPillButton, calmPrimaryButton, calmWarnButton } from '@/components/admin/ControlRoom'
+import { FilterBar } from '@/components/filter/FilterBar'
+import { useUrlFilters } from '@/hooks/useUrlFilters'
+import { clubCheckLine, clubCheckSummary, leagueOpen } from '@/lib/club-checks'
+import { countLabel } from '@/lib/url-filters'
 import { DirectoryReview } from '@/components/admin/DirectoryReview' // p2-b1
 
 const LEVEL_OPTIONS = [
@@ -313,95 +317,114 @@ function safeHttpsUrl(value) {
     }
 }
 
-function EvidenceChecklist({ evidence }) {
-    const rows = [
-        { label: 'Adult authority', value: evidence?.adult_authority_attested, type: 'attestation' },
-        { label: 'Authorization route', value: evidence?.authorization_method, type: 'enum' },
-        { label: 'Official-domain email', value: evidence?.official_email },
-        { label: 'Signed officer authorization', value: evidence?.authorization_reference },
-        { label: 'Eligible organization form', value: evidence?.organization_form, type: 'enum' },
-        { label: 'League / legal registration match', value: evidence?.registration_reference },
-        { label: 'Official contact name', value: evidence?.official_contact_name },
-        { label: 'Official contact cross-check', value: evidence?.official_contact_reference },
-        { label: 'Safeguarding contact', value: evidence?.safeguarding_contact_email },
-        { label: 'Safeguarding policy URL', value: evidence?.safeguarding_policy_url },
-        { label: 'Safeguarding controls', value: evidence?.safeguarding_policy_attested, type: 'attestation' },
-        { label: 'Organization-only recipient', value: evidence?.eligible_organization_attested, type: 'attestation' },
-        { label: 'Organization payout control', value: evidence?.payout_control_attested, type: 'attestation' },
-    ]
+const CLAIM_STATUS = [['pending', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['revoked', 'Revoked'], ['all', 'All']]
+const CLAIM_WORDS = { pending: ['gold', 'Waiting'], approved: ['good', 'Approved'], rejected: ['quiet', 'Rejected'], revoked: ['quiet', 'Revoked'] }
+const CLAIM_ASK = { pending: 'Wants to be a verified club', approved: 'Approved club', rejected: 'Claim rejected', revoked: 'Manager access revoked' }
+const CLAIM_FILTERS = [{ key: 'status', label: 'Status', neutral: true, defaultValue: 'pending', options: CLAIM_STATUS.map(([value, label]) => ({ value, label })) }]
+
+function ClaimsTab({ claims, loading, status, onStatus, onOpen }) {
     return (
-        <div className="grid gap-2 sm:grid-cols-2">
-            {rows.map(({ label, value, type }) => {
-                const isAttestation = type === 'attestation'
-                const isPresent = isAttestation ? value === true : typeof value === 'string' && value.trim().length > 0
-                const displayValue = type === 'enum' && isPresent ? title(value) : value
-                const href = safeHttpsUrl(value)
-                return (
-                    <div key={label} className="flex min-w-0 items-start gap-2 rounded-lg border bg-background/70 px-3 py-2 text-xs">
-                        {isPresent ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" /> : <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />}
-                        <span className="min-w-0 flex-1">
-                            <span className="block text-muted-foreground">{label}</span>
-                            {isAttestation ? (
-                                <span className="block font-medium text-foreground">{isPresent ? 'Attested' : 'Not attested'}</span>
-                            ) : href ? (
-                                <a href={href} target="_blank" rel="noreferrer" className="block break-words font-medium text-primary underline underline-offset-2 [overflow-wrap:anywhere]">
-                                    {value}<ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" />
-                                </a>
-                            ) : (
-                                <span className="block break-words font-medium text-foreground [overflow-wrap:anywhere]">{isPresent ? displayValue : 'Not supplied'}</span>
-                            )}
-                        </span>
-                    </div>
-                )
-            })}
+        <div className="flex flex-col gap-4">
+            <FilterBar label="Claim filters" filters={CLAIM_FILTERS} values={{ status }} onChange={changes => onStatus(changes.status)} count={loading ? '' : countLabel(claims.length, 'club', 'clubs')} />
+            {loading ? <LoadingState label="Loading clubs…" /> : claims.length === 0 ? (
+                <p className="border-t border-chalk/[0.12] py-8 text-sm text-muted-dark">{status === 'pending' ? 'No clubs are waiting.' : 'No clubs in this view.'}</p>
+            ) : (
+                <ul className="m-0 list-none overflow-hidden rounded-2xl border border-chalk/[0.12] p-0">
+                    {claims.map((claim, index) => {
+                        const [tone, words] = CLAIM_WORDS[claim.status] || ['quiet', title(claim.status)]
+                        return (
+                            <li key={claim.id}>
+                                <button type="button" onClick={() => onOpen(claim)} className={`flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-chalk/[0.04] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gold ${index < claims.length - 1 ? 'border-b border-chalk/[0.08]' : ''}`}>
+                                    <StatusDot tone={tone} />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block text-[15px] font-medium text-chalk [overflow-wrap:anywhere]">{claim.program?.name}</span>
+                                        <span className="mt-0.5 block text-[13px] text-muted-dark [overflow-wrap:anywhere]">{clubCheckLine(clubCheckSummary(claim.evidence))}</span>
+                                    </span>
+                                    <span className="flex-none text-[13px] text-muted-dark">{words}</span>
+                                </button>
+                            </li>
+                        )
+                    })}
+                </ul>
+            )}
         </div>
     )
 }
 
-function ClaimsTab({ claims, loading, status, setStatus, onReview, onSyncConnect }) {
+function CheckLine({ item }) {
+    const href = item.ok ? safeHttpsUrl(item.value) : null
+    const optional = !item.required && !item.ok
     return (
-        <div className="space-y-4">
-            <div className="flex flex-col justify-between gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:flex-row sm:items-center">
-                <div><h3 className="font-serif text-xl font-semibold">Organization approval queue</h3><p className="text-sm text-muted-foreground">League eligibility never substitutes for the club evidence bar.</p></div>
-                <Select value={status} onValueChange={setStatus}><SelectTrigger aria-label="Filter claims by status" className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All claims</SelectItem>{['pending', 'approved', 'rejected', 'revoked'].map((value) => <SelectItem key={value} value={value}>{title(value)}</SelectItem>)}</SelectContent></Select>
-            </div>
-            {loading ? <LoadingState label="Loading approval queue…" /> : claims.length === 0 ? (
-                <Card><CardContent className="py-14 text-center"><CheckCircle2 className="mx-auto mb-3 h-7 w-7 text-emerald-700" /><p className="font-medium">No {status === 'all' ? '' : status} claims in the queue.</p></CardContent></Card>
-            ) : claims.map((claim) => {
-                const league = claim.program?.league
-                const leagueReady = league?.registry_status === 'approved' && league?.admission_state === 'open'
-                return (
-                    <Card key={claim.id} className="overflow-hidden shadow-sm">
-                        <div className={`h-1 ${claim.status === 'pending' ? 'bg-amber-400' : claim.status === 'approved' ? 'bg-emerald-600' : 'bg-rose-500'}`} />
-                        <CardHeader>
-                            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-                                <div className="space-y-2">
-                                    <div className="flex flex-wrap gap-2"><StatusBadge value={claim.status} />{claim.program?.is_verified_program ? <Badge className="border-emerald-300 bg-emerald-700 text-white"><ShieldCheck className="mr-1 h-3 w-3" />Verified program</Badge> : <Badge variant="outline"><Clock3 className="mr-1 h-3 w-3" />Verification incomplete</Badge>}</div>
-                                    <CardTitle className="font-serif text-2xl">{claim.program?.name}</CardTitle>
-                                    <CardDescription>{claim.program?.legal_name} · {claim.applicant_email}</CardDescription>
+        <div className={`[overflow-wrap:anywhere] ${!item.ok && item.required ? 'text-chalk' : ''}`}>
+            {item.label} ·{' '}
+            {href ? <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2">{item.value}<ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" /></a>
+                : <span className={!item.ok && item.required ? 'text-[#E07A5F]' : ''}>{optional ? 'not supplied (optional)' : item.value}</span>}
+        </div>
+    )
+}
+
+function ClaimDetail({ claim, waiting, onBack, onReview, onSyncConnect }) {
+    const summary = clubCheckSummary(claim.evidence)
+    const league = claim.program?.league
+    const ready = leagueOpen(league)
+    const pending = claim.status === 'pending'
+    const place = [claim.program?.region, claim.program?.country].filter(Boolean).join(', ')
+    const connect = claim.connect
+    return (
+        <div className="flex max-w-[820px] flex-col gap-7">
+            <CalmHeader
+                back={<button type="button" onClick={onBack} className="self-start text-sm text-muted-dark hover:text-chalk">← Clubs waiting · {waiting}</button>}
+                title={claim.program?.name}
+                line={[CLAIM_ASK[claim.status] || title(claim.status), league?.name, place].filter(Boolean).join(' · ')}
+            />
+
+            <section aria-label="Decision" className={`${calmPanelClass} flex flex-col gap-5`}>
+                <div className="flex flex-wrap items-start justify-between gap-6">
+                    <div className="flex min-w-0 flex-col gap-2">
+                        <p className="m-0 text-xl font-semibold text-chalk">{summary.passed} of {summary.total} checks pass</p>
+                        {summary.missing.map(item => (
+                            <p key={item.label} className="m-0 flex items-center gap-2.5 text-[15px] text-chalk"><StatusDot tone="warn" /><span>Missing: <span className="font-medium">{item.short}</span> — {item.missing}</span></p>
+                        ))}
+                        {summary.complete && <p className="m-0 flex items-center gap-2.5 text-[15px] text-[#C9C5BA]"><StatusDot tone="good" />Nothing is missing</p>}
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
+                        {pending && <button type="button" className={`${calmPillButton} h-11`} onClick={() => onReview(claim, 'reject')}>Reject</button>}
+                        {pending && <button type="button" className={calmPrimaryButton} disabled={!summary.complete || !ready} onClick={() => onReview(claim, 'approve')}>Approve</button>}
+                        {claim.status === 'approved' && <button type="button" className={`${calmWarnButton} h-11`} onClick={() => onReview(claim, 'revoke')}>Revoke access</button>}
+                    </div>
+                </div>
+                {pending && (
+                    <p className="m-0 text-[13px] text-muted-dark">
+                        {!summary.complete ? 'A club can be approved only when every check passes. Reject the claim, or leave it waiting until the club supplies what is missing.'
+                            : !ready ? `${league?.name || 'The league'} is not open yet. Approve and open it in the League registry before approving this club.`
+                                : `Approving makes ${claim.applicant_email || 'the applicant'} the club's manager and records your reason.`}
+                    </p>
+                )}
+            </section>
+
+            <section aria-label="Checks" className="border-b border-chalk/[0.12]">
+                {summary.groups.map(group => (
+                    <CalmDetails key={group.key} summary={group.title} note={`${group.passed} of ${group.total} pass`} noteTone={group.failing ? 'warn' : undefined} open={group.failing}>
+                        <div className="flex flex-col gap-1.5">
+                            {group.checks.map(item => <CheckLine key={item.label} item={item} />)}
+                            {group.key === 'identity' && <div className="[overflow-wrap:anywhere]">Legal name · {claim.program?.legal_name || 'not supplied'}</div>}
+                            {group.key === 'authority' && <div className="[overflow-wrap:anywhere]">Applied by · {claim.applicant_email || 'former account'}</div>}
+                            {group.key === 'money' && (
+                                <div>
+                                    Connect · {connect ? (connect.is_ready ? 'test account ready' : 'onboarding pending') : 'not required outside the US'}
+                                    {connect?.onboarding_url ? <> · <a href={connect.onboarding_url} target="_blank" rel="noreferrer" className="underline underline-offset-2">Open test onboarding<ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" /></a></> : null}
+                                    {connect?.stripe_account_id && !connect?.is_ready ? <> · <button type="button" className="underline underline-offset-2" onClick={() => onSyncConnect(claim)}>Sync test readiness</button></> : null}
                                 </div>
-                                {claim.status === 'pending' ? (
-                                    <div className="flex gap-2"><Button size="sm" disabled={!leagueReady} onClick={() => onReview(claim, 'approve')} className="bg-emerald-700 hover:bg-emerald-800"><Check className="mr-1 h-4 w-4" />Approve</Button><Button size="sm" variant="outline" className="border-rose-300 text-rose-700" onClick={() => onReview(claim, 'reject')}><X className="mr-1 h-4 w-4" />Reject</Button></div>
-                                ) : claim.status === 'approved' ? (
-                                    <Button size="sm" variant="outline" className="border-rose-300 text-rose-700" onClick={() => onReview(claim, 'revoke')}><X className="mr-1 h-4 w-4" />Revoke access</Button>
-                                ) : null}
-                            </div>
-                        </CardHeader>
-                        <CardContent className="space-y-5">
-                            <div className="grid gap-3 rounded-xl bg-secondary/60 p-4 md:grid-cols-3">
-                                <div><p className="text-xs uppercase tracking-wide text-muted-foreground">League gate</p><p className="mt-1 font-medium">{league?.name}</p><div className="mt-2 flex gap-1"><StatusBadge value={league?.registry_status} /><StatusBadge value={league?.admission_state} /></div></div>
-                                <div><p className="text-xs uppercase tracking-wide text-muted-foreground">Location</p><p className="mt-1 font-medium">{claim.program?.region}, {claim.program?.country}</p><p className="mt-1 text-xs text-muted-foreground">{claim.program?.provenance?.label}</p></div>
-                                <div><p className="text-xs uppercase tracking-wide text-muted-foreground">Connect</p><p className="mt-1 font-medium">{claim.connect ? (claim.connect.is_ready ? 'Test account ready' : 'Onboarding pending') : 'Not required outside US'}</p>{claim.connect?.onboarding_url ? <a href={claim.connect.onboarding_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center text-xs text-primary underline">Open test onboarding <ExternalLink className="ml-1 h-3 w-3" /></a> : null}{claim.connect?.stripe_account_id && !claim.connect?.is_ready ? <Button size="sm" variant="link" className="mt-1 h-auto p-0 text-xs" onClick={() => onSyncConnect(claim)}>Sync test readiness</Button> : null}</div>
-                            </div>
-                            {!leagueReady && claim.status === 'pending' ? <Alert className="border-amber-200 bg-amber-50 text-amber-900"><AlertTriangle className="h-4 w-4" /><AlertDescription>Approve and open the proposed league before this club claim can be approved.</AlertDescription></Alert> : null}
-                            <EvidenceChecklist evidence={claim.evidence} />
-                            {claim.audit_trail?.length > 0 ? (
-                                <details className="rounded-lg border px-4 py-3 text-sm"><summary className="cursor-pointer font-medium">Audit trail · {claim.audit_trail.length}</summary><div className="mt-3 space-y-2 border-l pl-4">{claim.audit_trail.map((event, index) => <div key={`${event.action}-${index}`}><p className="font-medium">{title(event.action)}</p><p className="text-xs text-muted-foreground">{event.reason} · {formatDate(event.created_at)}</p></div>)}</div></details>
-                            ) : null}
-                        </CardContent>
-                    </Card>
-                )
-            })}
+                            )}
+                        </div>
+                    </CalmDetails>
+                ))}
+                {claim.audit_trail?.length > 0 && (
+                    <CalmDetails summary="History" note={String(claim.audit_trail.length)}>
+                        <div className="flex flex-col gap-2">{claim.audit_trail.map((event, index) => <div key={`${event.action}-${index}`} className="[overflow-wrap:anywhere]"><span className="text-chalk">{title(event.action)}</span> · {event.reason} · {formatDate(event.created_at)}</div>)}</div>
+                    </CalmDetails>
+                )}
+            </section>
         </div>
     )
 }
@@ -490,15 +513,17 @@ function ContentReviewQueues() {
         </Card>
     )
 
-    return <section className="space-y-4" aria-labelledby="content-review-heading"><div><h2 id="content-review-heading" className="display border-b border-chalk pb-3 text-[2.25rem] leading-none sm:text-[2.5rem]">Program content review</h2><p className="mt-3 text-sm text-muted-foreground">Approve only content supplied by the verified program manager.</p></div>{error ? <Alert className="border-rose-300 bg-rose-50"><AlertTriangle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert> : null}<div className="grid gap-5 xl:grid-cols-2">{queue('profile', 'Profile revisions', profiles)}{queue('update', 'Program updates', updates)}</div></section>
+    return <section className="space-y-4" aria-labelledby="content-review-heading"><div><h2 id="content-review-heading" className="m-0 text-base font-semibold text-chalk">Club content to approve</h2><p className="mt-1 text-sm text-muted-dark">Approve only content supplied by the club's verified manager.</p></div>{error ? <Alert className="border-rose-300 bg-rose-50"><AlertTriangle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert> : null}<div className="grid gap-5 xl:grid-cols-2">{queue('profile', 'Profile revisions', profiles)}{queue('update', 'Program updates', updates)}</div></section>
 }
 
+const PAGE_DEFAULTS = { tab: 'registry', status: 'pending', claim: '' }
+const TABS = ['registry', 'claims', 'content', 'demand']
+
 export function AdminFunding() {
-    const [searchParams, setSearchParams] = useSearchParams()
-    const requestedTab = searchParams.get('tab')
-    const [tab, setTab] = useState(['registry', 'claims', 'demand'].includes(requestedTab) ? requestedTab : 'registry')
+    const [page, setPage] = useUrlFilters(PAGE_DEFAULTS)
+    const tab = TABS.includes(page.tab) ? page.tab : 'registry'
+    const claimStatus = CLAIM_STATUS.some(([value]) => value === page.status) ? page.status : 'pending'
     const [filters, setFilters] = useState({ q: '', admission_state: 'all', registry_status: 'all' })
-    const [claimStatus, setClaimStatus] = useState('pending')
     const [leagues, setLeagues] = useState([])
     const [claims, setClaims] = useState([])
     const [demand, setDemand] = useState({ programs: [], by_region: [], by_league: [] })
@@ -535,11 +560,6 @@ export function AdminFunding() {
 
     useEffect(() => { load() }, [load])
 
-    const changeTab = (value) => {
-        setTab(value)
-        setSearchParams(value === 'registry' ? {} : { tab: value }, { replace: true })
-    }
-
     const saved = (text) => {
         setMessage({ type: 'success', text })
         load()
@@ -564,6 +584,8 @@ export function AdminFunding() {
             setReview(null)
             setReviewReason('')
             const actionLabel = review.action === 'approve' ? 'approved' : review.action === 'revoke' ? 'revoked' : 'rejected'
+            // The decided claim leaves this list; go back to it rather than show a stale answer.
+            setPage({ claim: '' }, { replace: true })
             saved(`Claim ${actionLabel} with an audit record.`)
         } catch (err) {
             setMessage({ type: 'error', text: err.message || 'Unable to review claim' })
@@ -583,49 +605,41 @@ export function AdminFunding() {
         }
     }
 
-    const stats = {
-        open: leagues.filter((league) => league.admission_state === 'open' && league.registry_status === 'approved').length,
-        proposed: leagues.filter((league) => league.registry_status === 'proposed').length,
-        pending: claims.filter((claim) => claim.status === 'pending').length,
-    }
+    const openClaim = tab === 'claims' && page.claim ? claims.find((claim) => String(claim.id) === page.claim) : null
+    const waiting = claims.filter((claim) => claim.status === 'pending').length
+    const startReview = (claim, action) => { setReview({ claim, action }); setReviewReason('') }
 
     return (
-        <div className="space-y-6">
-            <AdminPageHeader
-                eyebrow={<span className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Operations · Grassroots funding · F2</span>}
-                title="Registry"
-                accent="control room"
-                lede="League-gated admission, adult authority evidence, and organization verification. No donations are processed in this build."
-                meta={(
-                    <div className="grid grid-cols-3 gap-8 border-t border-chalk/20 pt-4 md:border-t-0 md:pt-0">
-                        <BigStat label="Open leagues" value={stats.open} />
-                        <BigStat label="Waitlist" value={stats.proposed} />
-                        <BigStat label="Claims" value={stats.pending} />
-                    </div>
-                )}
-            />
+        <div className="flex flex-col gap-6">
+            {openClaim ? null : <CalmHeader title="Club verification" line="Which leagues are open, and which clubs are waiting to be verified." />}
 
-            {message ? <Alert className={message.type === 'error' ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-emerald-300 bg-emerald-50 text-emerald-900'}>{message.type === 'error' ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}<AlertDescription>{message.text}</AlertDescription></Alert> : null}
+            {message ? <p role={message.type === 'error' ? 'alert' : 'status'} className="m-0 flex items-center gap-2.5 text-sm text-chalk"><StatusDot tone={message.type === 'error' ? 'warn' : 'good'} />{message.text}</p> : null}
 
-            <Tabs value={tab} onValueChange={changeTab}>
-                <TabsList className="grid h-auto w-full grid-cols-3 sm:w-[560px]">
-                    <TabsTrigger value="registry" className="py-2.5"><Landmark className="mr-2 h-4 w-4" />League registry</TabsTrigger>
-                    <TabsTrigger value="claims" className="py-2.5"><FileCheck2 className="mr-2 h-4 w-4" />Approval queue</TabsTrigger>
-                    <TabsTrigger value="demand" className="py-2.5"><BellRing className="mr-2 h-4 w-4" />Demand</TabsTrigger>
-                </TabsList>
-                <TabsContent value="registry" className="mt-5"><RegistryTab leagues={leagues} loading={loading} filters={filters} setFilters={setFilters} onCreate={() => { setEditingLeague(null); setDialogOpen(true) }} onEdit={(league) => { setEditingLeague(league); setDialogOpen(true) }} onDelete={removeLeague} /></TabsContent>
-                <TabsContent value="claims" className="mt-5"><ClaimsTab claims={claims} loading={loading} status={claimStatus} setStatus={setClaimStatus} onReview={(claim, action) => { setReview({ claim, action }); setReviewReason('') }} onSyncConnect={syncConnect} /></TabsContent>
-                <TabsContent value="demand" className="mt-5"><DemandTab demand={demand} loading={loading} /></TabsContent>
-            </Tabs>
-
-            <ContentReviewQueues />
+            {openClaim ? (
+                <ClaimDetail claim={openClaim} waiting={waiting} onBack={() => setPage({ claim: '' })} onReview={startReview} onSyncConnect={syncConnect} />
+            ) : tab === 'claims' && page.claim && !loading ? (
+                <div className="flex flex-col gap-3"><p className="m-0 text-sm text-muted-dark">That club is not in this list any more — it may already have been decided.</p><button type="button" className={`${calmPillButton} self-start`} onClick={() => setPage({ claim: '' })}>Back to the clubs waiting</button></div>
+            ) : (
+                <Tabs value={tab} onValueChange={(value) => setPage({ tab: value, claim: '', status: 'pending' })}>
+                    <TabsList className="flex h-auto w-full flex-wrap justify-start sm:w-auto sm:self-start">
+                        <TabsTrigger value="registry" className="py-2.5">League registry</TabsTrigger>
+                        <TabsTrigger value="claims" className="py-2.5">Clubs waiting{!loading && claimStatus === 'pending' && waiting ? ` · ${waiting}` : ''}</TabsTrigger>
+                        <TabsTrigger value="content" className="py-2.5">Content review</TabsTrigger>
+                        <TabsTrigger value="demand" className="py-2.5">Demand</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="registry" className="mt-5"><RegistryTab leagues={leagues} loading={loading} filters={filters} setFilters={setFilters} onCreate={() => { setEditingLeague(null); setDialogOpen(true) }} onEdit={(league) => { setEditingLeague(league); setDialogOpen(true) }} onDelete={removeLeague} /></TabsContent>
+                    <TabsContent value="claims" className="mt-5"><ClaimsTab claims={claims} loading={loading} status={claimStatus} onStatus={(status) => setPage({ status })} onOpen={(claim) => setPage({ claim: String(claim.id) })} /></TabsContent>
+                    <TabsContent value="content" className="mt-5"><ContentReviewQueues /></TabsContent>
+                    <TabsContent value="demand" className="mt-5"><DemandTab demand={demand} loading={loading} /></TabsContent>
+                </Tabs>
+            )}
 
             {dialogOpen ? <LeagueDialog open onOpenChange={setDialogOpen} league={editingLeague} onSaved={saved} /> : null}
             <Dialog open={Boolean(review)} onOpenChange={(open) => { if (!open) setReview(null) }}>
                 <DialogContent>
-                    <DialogHeader><DialogTitle className="font-serif text-2xl">{review?.action === 'approve' ? 'Approve organization' : review?.action === 'revoke' ? 'Revoke manager access' : 'Reject claim'}</DialogTitle><DialogDescription>{review?.claim?.program?.name} · the reason is retained in the immutable admin trail.</DialogDescription></DialogHeader>
+                    <DialogHeader><DialogTitle className="text-xl font-semibold">{review?.action === 'approve' ? 'Approve organization' : review?.action === 'revoke' ? 'Revoke manager access' : 'Reject claim'}</DialogTitle><DialogDescription>{review?.claim?.program?.name} · the reason is retained in the immutable admin trail.</DialogDescription></DialogHeader>
                     <Field id="funding-review-reason" label="Review reason"><Textarea id="funding-review-reason" name="review_reason" autoComplete="off" autoFocus value={reviewReason} onChange={(e) => setReviewReason(e.target.value)} placeholder="Record the evidence decision and any follow-up…" /></Field>
-                    <DialogFooter><Button variant="ghost" onClick={() => setReview(null)}>Cancel</Button><Button disabled={reviewing || !reviewReason.trim()} onClick={submitReview} className={review?.action === 'approve' ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-rose-700 hover:bg-rose-800'}>{reviewing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : review?.action === 'approve' ? <ShieldCheck className="mr-2 h-4 w-4" /> : <X className="mr-2 h-4 w-4" />}{review?.action === 'approve' ? 'Approve claim' : review?.action === 'revoke' ? 'Revoke manager' : 'Reject claim'}</Button></DialogFooter>
+                    <DialogFooter><Button variant="ghost" onClick={() => setReview(null)}>Cancel</Button><Button disabled={reviewing || !reviewReason.trim()} onClick={submitReview}>{reviewing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}{review?.action === 'approve' ? 'Approve claim' : review?.action === 'revoke' ? 'Revoke manager' : 'Reject claim'}</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>
