@@ -4,13 +4,9 @@ import logging
 import re
 import sys
 import traceback
+import unicodedata
 from collections import OrderedDict, defaultdict
-from datetime import date, time, timedelta
-from decimal import Decimal
-from enum import Enum
-from pathlib import PurePath
 from secrets import token_hex
-from uuid import UUID
 
 # This cap belongs only to the explicit address helper, never to log records.
 MAX_LOG_CHARS = 65536
@@ -43,7 +39,10 @@ def mask_email(value) -> str:
             or any(c.isspace() or c in _DELIMITERS or c == "…" for c in local)
         ):
             return _MaskedEmail("[masked]")
-        prefix = local[: min(2, max(0, len(local) - 1))]
+        local = unicodedata.normalize("NFC", local)
+        starts = [i for i, char in enumerate(local) if not unicodedata.combining(char)]
+        visible = min(2, max(0, len(starts) - 1))
+        prefix = local[: starts[visible]] if visible else ""
         return _MaskedEmail(f"{prefix}…@{domain}")
     except Exception:
         return _MaskedEmail("[masked]")
@@ -135,7 +134,41 @@ class _Fields:
     def __init__(self):
         self.active = set()
         self.trusted = {}
+        self.native_safe = set()
         self.prefix = "__privacy_" + token_hex(16) + "_"
+
+    def unchanged(self, value):
+        """Inspect native representations and contained fields without copying cycles."""
+        pending, seen = [value], set()
+        while pending:
+            item = pending.pop()
+            ident = id(item)
+            if ident in seen or ident in self.native_safe:
+                continue
+            seen.add(ident)
+            if type(item) is _MaskedEmail:
+                continue
+            if isinstance(item, (str, bytes)):
+                rendered = item.decode("latin-1") if isinstance(item, bytes) else item
+                if _text(rendered) != rendered:
+                    return False
+                continue
+            # Exact builtin containers derive their representations from their
+            # members; inspecting leaves once also handles arbitrarily deep cycles.
+            if type(item) not in (dict, OrderedDict, defaultdict, list, tuple, set, frozenset):
+                try:
+                    for rendered in (str(item), repr(item)):
+                        if _text(rendered) != rendered:
+                            return False
+                except Exception:
+                    return False
+            if isinstance(item, dict):
+                pending.extend(item.keys())
+                pending.extend(item.values())
+            elif isinstance(item, (list, tuple, set, frozenset)):
+                pending.extend(item)
+        self.native_safe.update(seen)
+        return True
 
     def field(self, value, *, placeholders=False):
         if type(value) is _MaskedEmail:
@@ -149,6 +182,8 @@ class _Fields:
         if isinstance(value, bytes):
             return _text(value.decode("latin-1")).encode("latin-1")
         if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if self.unchanged(value):
             return value
         if isinstance(value, (dict, list, tuple, set, frozenset)):
             ident = id(value)
@@ -186,11 +221,13 @@ class _Fields:
                 self.active.remove(ident)
         rendered = _render(value)
         redacted = _text(rendered)
-        return (
-            value
-            if redacted == rendered and isinstance(value, (date, time, timedelta, Decimal, Enum, UUID, PurePath))
-            else redacted
-        )
+        if redacted == rendered:
+            # A custom object's repr can expose an address even when str does not.
+            try:
+                return _text(repr(value))
+            except Exception:
+                pass
+        return redacted
 
     def message(self, record):
         # Exactly logging's normal message coercion, before %-formatting.
@@ -310,6 +347,10 @@ class EmailLogFilter(logging.Filter):
                     if type(error) is _RenderedTraceback
                     else _text("".join(traceback.format_exception(kind, error, tb)))
                 )
+                # Match Formatter.formatException: remove exactly one newline,
+                # including helper snapshots, preserving intentional blank lines.
+                if rendered.endswith("\n"):
+                    rendered = rendered[:-1]
                 record.exc_text = rendered
                 header = kind if kind.__module__ == "builtins" and "@" not in kind.__name__ else _LogException
                 record.exc_info = (header, _LogException(rendered), None)

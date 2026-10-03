@@ -179,7 +179,8 @@ def test_structured_containers_cycles_objects_and_bytes():
     assert isinstance(item.details["ordered"], OrderedDict)
     assert isinstance(item.details["default"], defaultdict)
     assert item.details["default"].default_factory is list
-    assert "cyclic" in repr(item.details["cycle"])
+    assert item.details["cycle"] is cycle
+    assert repr(item.details["cycle"]) == "[[...]]"
     assert "Broken" in item.getMessage()
 
 

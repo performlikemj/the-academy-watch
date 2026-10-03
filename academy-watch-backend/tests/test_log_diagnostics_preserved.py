@@ -3,6 +3,7 @@
 import io
 import logging
 import smtplib
+import sys
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,7 +13,7 @@ import requests
 from gunicorn.config import Config
 from gunicorn.workers.base import Worker
 from src.services.email_service import SMTPProvider
-from src.utils.log_privacy import EmailLogFilter, _scan_text, protect_log_handlers
+from src.utils.log_privacy import EmailLogFilter, _scan_text, email_exc_info, protect_log_handlers
 from src.utils.privacy_gunicorn import PrivacyGunicornLogger
 
 pytest_plugins = ["test_log_email_masking"]
@@ -218,3 +219,113 @@ def test_cyclic_and_sparse_set_arguments_preserve_native_repr():
         expected = record.getMessage()
         assert EmailLogFilter().filter(record)
         assert record.getMessage() == expected
+
+
+class NativeDetail:
+    def __str__(self):
+        return "E86 native detail"
+
+    def __repr__(self):
+        return "NativeDetail(code=86)"
+
+
+def safe_extra_values():
+    cycle = []
+    cycle.append(cycle)
+    mapping = {"code": 86}
+    mapping["self"] = mapping
+    return [ValueError("E86 invalid season"), SimpleNamespace(code=86), NativeDetail(), cycle, mapping]
+
+
+@pytest.mark.parametrize("value", safe_extra_values())
+@pytest.mark.parametrize("conversion", ["s", "r"])
+def test_address_free_extra_preserves_native_object_and_formatter(value, conversion):
+    record = logging.LogRecord("diagnostic", logging.ERROR, __file__, 1, "event E86", (), None)
+    record.detail = value
+    formatter = logging.Formatter("%(message)s detail=%(detail)" + conversion)
+    expected = formatter.format(record)
+    assert EmailLogFilter().filter(record)
+    assert record.detail is value
+    assert formatter.format(record) == expected
+
+
+@pytest.mark.parametrize("leaking_render", ["str", "repr", "both"])
+@pytest.mark.parametrize("conversion", ["s", "r"])
+def test_address_bearing_extra_checks_both_native_representations(leaking_render, conversion):
+    class Detail:
+        def __str__(self):
+            return "error E86 " + EMAIL if leaking_render in ("str", "both") else "error E86 safe"
+
+        def __repr__(self):
+            return "Detail E86 " + EMAIL if leaking_render in ("repr", "both") else "Detail E86 safe"
+
+    record = logging.LogRecord("diagnostic", logging.ERROR, __file__, 1, "event E86", (), None)
+    record.detail = {"nested": [Detail()]}
+    assert EmailLogFilter().filter(record)
+    output = logging.Formatter("%(message)s detail=%(detail)" + conversion).format(record)
+    assert EMAIL not in output
+    assert "[masked]" in output and "E86" in output
+
+
+@pytest.mark.parametrize("snapshot", [False, True])
+@pytest.mark.parametrize("address", ["safe", EMAIL])
+@pytest.mark.parametrize("newlines", [0, 1, 2])
+def test_full_exception_stream_matches_native_except_masked_token(snapshot, address, newlines):
+    try:
+        try:
+            raise ValueError("cause E86 " + address)
+        except ValueError as cause:
+            raise RuntimeError("league=123 E83 " + address + "\n" * newlines) from cause
+    except RuntimeError:
+        native_info = sys.exc_info()
+        info = email_exc_info((EMAIL,)) if snapshot else native_info
+    native = logging.LogRecord(
+        "academy", logging.ERROR, __file__, 1, "Error syncing league Premier League 2", (), native_info
+    )
+    record = logging.LogRecord("academy", logging.ERROR, __file__, 1, native.msg, (), info)
+    expected, actual = io.StringIO(), io.StringIO()
+    logging.StreamHandler(expected).handle(native)
+    handler = logging.StreamHandler(actual)
+    handler.addFilter(EmailLogFilter())
+    handler.handle(record)
+    assert actual.getvalue() == _scan_text(expected.getvalue())
+
+
+def test_unsafe_cyclic_extra_masks_address_without_rewriting_safe_cycle():
+    safe_cycle = []
+    safe_cycle.append(safe_cycle)
+    unsafe_cycle = [EMAIL]
+    unsafe_cycle.append(unsafe_cycle)
+    record = logging.LogRecord("diagnostic", logging.ERROR, __file__, 1, "event E86", (), None)
+    record.detail = {"safe": safe_cycle, "unsafe": unsafe_cycle}
+    assert EmailLogFilter().filter(record)
+    assert record.detail["safe"] is safe_cycle
+    assert EMAIL not in repr(record.detail) and "[masked]" in repr(record.detail)
+
+
+def test_real_academy_outer_failure_full_record_matches_main(monkeypatch, caplog):
+    from src.services import academy_sync_service as sync
+
+    protect_log_handlers()
+    monkeypatch.setattr("src.utils.data_mode.require_api_enabled", lambda: None)
+    monkeypatch.setattr(sync, "db", SimpleNamespace(session=Mock()))
+    service = sync.AcademySyncService(api_client=Mock(), rate_limiter=Mock())
+    monkeypatch.setattr(service, "_ensure_current_season", lambda leagues: None)
+    monkeypatch.setattr(service, "_fetch_fixtures", Mock(side_effect=RuntimeError(f"league=123 E83 {EMAIL}")))
+    league = SimpleNamespace(id=7, api_league_id=123, name="Premier League 2", season=2026, sync_enabled=True)
+    native_records = []
+    original = sync.logger.exception
+
+    def capture_native(message, *args, **kwargs):
+        native_records.append(
+            logging.LogRecord(sync.logger.name, logging.ERROR, __file__, 1, message, args, sys.exc_info())
+        )
+        original(message, *args, **kwargs)
+
+    monkeypatch.setattr(sync.logger, "exception", capture_native)
+    result = service.sync_league(league, date_from=date(2026, 9, 28), date_to=date(2026, 10, 4))
+    native = native_records[0]
+    record = next(r for r in caplog.records if r.getMessage().startswith("Error syncing league Premier League 2:"))
+    formatter = logging.Formatter("%(name)s %(levelname)s %(message)s")
+    assert formatter.format(record) == _scan_text(formatter.format(native))
+    assert result["errors"] == [f"Error syncing league Premier League 2: league=123 E83 {EMAIL}"]
