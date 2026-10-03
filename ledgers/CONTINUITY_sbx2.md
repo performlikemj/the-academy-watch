@@ -3,8 +3,8 @@
 - Goal: second OS boundary after the existing analysis allowlist.
 - Constraints: local only; no migration/frontend change; release after #1135; assistant stays under maintenance.
 - Base: d9489aee / feat/gol-analysis-isolation.
-- Now: SBX2F1 review union in progress; reviewed delivery was 0cfbfc3d / ready PR1139, four cached gates and six CI jobs PASS.
-- Next: reverse probes, repair parity/readiness/resource admission, Linux validation, merge main, final-head gates/push/CI and SBX2F1 hand-back.
+- Now: SBX2F1 review union implemented; reviewed delivery was 0cfbfc3d / ready PR1139, four cached gates and six CI jobs PASS.
+- Next: final-head cached gates, push, bounded Linux CI and SBX2F1 hand-back.
 - Contract: CONTRACT | SBX2 | One fresh exec child per analysis, env={}, close_fds, three pipes, private temp cwd. Versioned column JSON (base64 fixed numeric buffers and tagged plain object values; no pickle) capped128MiB input/2MiB output; existing restricted executor and formatter run synchronously only after OS policy installs. Linux requires Landlock ABI>=3 + no_new_privs + libseccomp syscall allowlist denying network/process creation/other-process access; macOS requires Seatbelt filesystem/network/process policy. CPU10s, wall deadline parent SIGKILL+wait, address-space cap Linux plus parent RSS cap on both, file-size0/core0/nproc0/nice10. Missing policy -> neutral refusal, never parent execution. Preload analysis-only modules before filesystem lockdown; no Flask/DB imports; helpers use passed frames. Per-call startup and real-schema100k/200k transport measured locally and non-root Docker0.5CPU/1Gi before pool decision. Azure kernel support remains unverified locally and is a release prerequisite; separate credential-free ACA job/container is the stronger infrastructure option. No migration/frontend change. Released after1135; assistant stays under maintenance.
 
 - Milestone: synchronous first-layer executor, plain column transport, Linux Landlock/seccomp and macOS Seatbelt, parent SIGKILL/reap and container-wide memory admission implemented.
@@ -31,3 +31,5 @@
 - SBX2F1 targeted: native non-root Linux aarch640.5CPU/1GiB641PASS/0SKIP; macOS portable602PASS/296Linux-or-PostgreSQL skips. Real PostgreSQL loader probe exposed a macOS-only test expectation, corrected to a clearly named trusted codec/reference path; Linux still executes children.
 - SBX2F1 measurements: Linux100k/200k bootstrap315/322ms, serialize126/267ms, end-to-end780/1018ms; full Flask preload/two workers/two threads peak739033088bytes, no OOM, two200k row-wise successes/two10s busy refusals. Exact receipts external logs/SBX2F1/.
 - SBX2F1 source freeze follows main integration and final focused loader validation; final cached gates/push/CI are recorded externally rather than editing source after gates. No migration/frontend screenshot changes. Production kernel remains UNCONFIRMED; maintenance is unchanged.
+
+- Main e510612a merged (#1135 already included); only AGENTS/CONTINUITY append conflicts, both histories preserved. PostgreSQL expected head inherited verbatim as p2c3; incoming migration/front-end files are unmodified. Own PR diff remains process isolation only. Corrected local PostgreSQL loader2PASS; owned aw_sbxf2 dropped in finally.

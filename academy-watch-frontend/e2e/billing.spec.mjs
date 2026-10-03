@@ -58,6 +58,7 @@ async function installApi(page, handler, { signedIn = false, account = ACCOUNT }
     if (url.pathname === '/api/club/7/map') return route.fulfill({ json: { program: { id: 7, name: 'Northbank Juniors' }, squads: [], staff: [], unassigned_count: 0 } })
     if (url.pathname === '/api/billing/config' && signedIn) return route.fulfill({ json: GOL_CONFIG })
     if (url.pathname === '/api/features') return route.fulfill({ json: { contact_rail: false } })
+    if (url.pathname === '/api/scout-attendance/features') return route.fulfill({ json: { scout_attend: false } })
     if (url.pathname === '/api/sync-status') return route.fulfill({ json: { running: false } })
     if (url.pathname === '/api/journalists') return route.fulfill({ json: [] })
     if (url.pathname === '/api/sponsors') return route.fulfill({ json: [] })

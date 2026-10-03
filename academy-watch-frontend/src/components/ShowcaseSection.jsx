@@ -1,3 +1,7 @@
+// --- p2-c2 begin ---
+import { PublicHighlights } from '@/components/highlights/PublicHighlights'
+import { HighlightInboxLink } from '@/components/highlights/HighlightApprovals'
+// --- p2-c2 end ---
 import '@/styles/floodlight-player.css'
 import { PlayerApplicationsTeaser } from '@/components/showcase/PlayerApplicationsTeaser'
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
@@ -1792,6 +1796,10 @@ function ShowcaseSectionBody({
   return (
     <Card className={isOwner ? 'fl-owner-showcase' : undefined}>
       <CardContent className="space-y-8 py-6">
+        {/* --- p2-c2 begin --- */}
+        <PublicHighlights playerId={matchPlayerApiId} />
+        {isOwner && <HighlightInboxLink />}
+        {/* --- p2-c2 end --- */}
         {/* Header */}
         <SectionHeader
           icon={Sparkles}

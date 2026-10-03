@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import logging
 
 import dotenv
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_talisman import Talisman
@@ -87,6 +87,22 @@ from src.services.admin_control_safety import register_safety
 register_safety()
 # --- p2-b3 end ---
 
+# isort: split
+# --- p2-c2 begin ---
+import src.models.highlights  # noqa: F401
+import src.services.highlights_source  # noqa: F401
+from src.routes.highlights import highlights_bp
+from src.services.highlights import register_notifications as register_highlight_notifications
+
+# --- p2-c2 end ---
+
+# isort: split
+# --- p2-c4 begin ---
+from src.routes.scout_attendance import scout_attendance_bp
+from src.services.scout_attendance import register_notifications as register_attendance_notifications
+
+# --- p2-c4 end ---
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -155,6 +171,10 @@ app.register_blueprint(admin_programs_bp, url_prefix="/api")
 # --- p2-b3 begin ---
 app.register_blueprint(admin_control_bp, url_prefix="/api")
 # --- p2-b3 end ---
+# --- p2-c2 begin ---
+app.register_blueprint(highlights_bp, url_prefix="/api")
+register_highlight_notifications()
+# --- p2-c2 end ---
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
@@ -162,6 +182,10 @@ app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
 app.register_blueprint(opportunities_bp, url_prefix="/api")
 register_notifications()
 # --- p2-b2 end ---
+# --- p2-c4 begin ---
+app.register_blueprint(scout_attendance_bp, url_prefix="/api")
+register_attendance_notifications()
+# --- p2-c4 end ---
 app.register_blueprint(feedback_bp, url_prefix="/api")
 app.register_blueprint(interest_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
@@ -204,6 +228,15 @@ csp = {
     "connect-src": ["'self'", "https:"],
     "frame-ancestors": ["'none'"],
 }
+
+
+@app.after_request
+def highlight_media_referrer_policy(response):
+    # Registered before Talisman so this runs after its default header writer.
+    if request.endpoint in {"highlights.public_clip", "highlights.preview", "highlights.club_preview"}:
+        response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
 
 Talisman(
     app,

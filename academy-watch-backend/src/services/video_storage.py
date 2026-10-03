@@ -95,7 +95,11 @@ def mint_read_sas(blob_path: str, hours: int = READ_SAS_HOURS) -> str:
 
 
 def mint_media_read_sas(
-    blob_path: str, *, seconds: int = MEDIA_READ_SAS_MINUTES * 60, snapshot: str | None = None
+    blob_path: str,
+    *,
+    seconds: int = MEDIA_READ_SAS_MINUTES * 60,
+    snapshot: str | None = None,
+    expires_at: datetime | None = None,
 ) -> str:
     """Short read-only SAS for the browser footage redirect — never longer than the media token, and never
     longer than the token's REMAINING life when the caller passes it (``seconds``).
@@ -104,6 +108,10 @@ def mint_media_read_sas(
     (club staff access: scoped staff never get a capability on the mutable base blob)."""
     ttl = max(1, min(int(seconds), MEDIA_READ_SAS_MINUTES * 60))
     expiry = datetime.now(UTC) + timedelta(seconds=ttl)
+    if expires_at is not None:
+        expiry = min(expiry, expires_at)
+        if expiry <= datetime.now(UTC):
+            raise ValueError("media_grant_expired")
     if snapshot:
         sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry, snapshot=snapshot)
     else:

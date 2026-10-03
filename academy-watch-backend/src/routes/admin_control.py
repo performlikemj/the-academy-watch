@@ -110,10 +110,8 @@ def hide_dark_control_routes():
                 ):
                     continue
                 copied = candidate.empty()
-                # --- p2-c1 begin --- preserve the inherited dark OPTIONS contract
-                if candidate.methods is not None:
-                    copied.methods = candidate.methods.copy()
-                # --- p2-c1 end ---
+                # Preserve exact Allow ordering when rematching a dark route.
+                copied.methods = candidate.methods
                 # Flask adds this attribute after Werkzeug constructs the rule.
                 copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
                 visible_rules.append(copied)
@@ -450,6 +448,10 @@ def account_action(user_id, action):
     if not isinstance(payload, dict):
         return jsonify(error="JSON object required"), 400
     try:
+        if action == "suspend":
+            from src.services.scout_attendance import lock_user_attendance
+
+            lock_user_attendance(user_id)
         user = UserAccount.query.filter_by(id=user_id).populate_existing().with_for_update().first()
         if user is None or user.is_tombstone:
             return jsonify(error="Not found"), 404
@@ -466,6 +468,10 @@ def account_action(user_id, action):
             payload.get("reason"),
             {"before_status": user.account_status, "after_status": target},
         )
+        if action == "suspend":
+            from src.services.scout_attendance import revoke_user
+
+            revoke_user(user_id)
         user.account_status = target
         user.auth_epoch = (user.auth_epoch or 0) + 1
         if action == "suspend":

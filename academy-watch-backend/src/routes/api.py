@@ -13323,6 +13323,10 @@ def features():
         if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
             flags[f"admin_{name}"] = True
     # --- p2-b3 end ---
+    # --- p2-c2 begin ---
+    if os.getenv("HIGHLIGHTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["highlights"] = True
+    # --- p2-c2 end ---
     # --- p2-c1 begin ---
     if os.getenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_player_publication"] = True
