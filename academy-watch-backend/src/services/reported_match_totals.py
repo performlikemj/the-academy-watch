@@ -281,8 +281,18 @@ def saved_shadow_totals(player_ids, requested_season=None):
     )
     reported = reported_totals(player_ids=ids, season=season, eligible_ids=eligible, skip_stored=True)
     result = {}
+    valid_stored = {
+        scope
+        for scope, row in stored.items()
+        if row.primary_source in PROVIDER_SOURCES
+        or (
+            scope in backed
+            and scope[0] in eligible
+            and ((row.source_breakdown or {}).get("matches") or {}).get("revision") == 2
+        )
+    }
     for player_id in ids:
-        seasons = {s for pid, s in set(stored) | set(grouped) | set(reported) if pid == player_id}
+        seasons = {s for pid, s in valid_stored | set(grouped) | set(reported) if pid == player_id}
         target = season if season is not None else max(seasons, default=None)
         scope = (player_id, target)
         total = stored.get(scope)

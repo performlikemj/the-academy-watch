@@ -1493,7 +1493,7 @@ def scout_compare():
             if not tracked_player:
                 continue
 
-            uses_reported_candidate = candidate["provenance"]["source_category"] in {"club", "self"}
+            uses_reported_candidate = candidate["provenance"]["source_category"] in {"club", "self", "mixed"}
             if (
                 uses_reported_candidate
                 or player_id in projected_provider_ids

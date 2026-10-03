@@ -1,7 +1,5 @@
 """Small approved-only card enrichment, batched for already eligible Scout rows."""
 
-from html import unescape
-
 import bleach
 from sqlalchemy import or_
 from src.models.league import db
@@ -35,7 +33,9 @@ def attach_card_fields(players):
     for row in db.session.query(
         PlayerShowcaseProfile.player_api_id, PlayerShowcaseProfile.local_player_id, PlayerShowcaseProfile.bio
     ).filter(scope(PlayerShowcaseProfile), PlayerShowcaseProfile.status == "approved"):
-        text = " ".join(unescape(bleach.clean(display_plain_text(row.bio) or "", tags=[], strip=True)).split())
+        text = " ".join(
+            display_plain_text(bleach.clean(display_plain_text(row.bio) or "", tags=[], strip=True)).split()
+        )
         bios[signed(row)] = text if len(text) <= BIO_LIMIT else text[: BIO_LIMIT - 1].rstrip() + "…"
     photos = {}
     for row in (

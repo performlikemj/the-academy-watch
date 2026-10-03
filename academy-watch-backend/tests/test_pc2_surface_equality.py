@@ -265,7 +265,8 @@ def app(monkeypatch):
     from src.extensions import limiter
 
     limiter.init_app(application)
-    limiter.reset()
+    if limiter._storage is not None:
+        limiter.reset()
     for bp in (player_matches_bp, players_bp, scout_bp, api_bp, teams_bp):
         application.register_blueprint(bp, url_prefix="/api")
     with application.app_context():
@@ -273,7 +274,8 @@ def app(monkeypatch):
             db.drop_all()  # exclusively owned aw_pc2; remove standalone proof seed
         db.create_all()
         yield application
-        limiter.reset()
+        if limiter._storage is not None:
+            limiter.reset()
         db.session.remove()
         db.drop_all()
 
@@ -423,6 +425,8 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                     expected[player_id],
                 )
         for path in (
+            f"/api/teams/{team.id}/loans",
+            f"/api/teams/{team.id}/players",
             f"/api/teams/{team.id}/loans?season={SEASON}",
             f"/api/teams/{team.id}/loans/season/{SEASON}",
             f"/api/teams/{team.id}/players?season={SEASON}",
@@ -501,6 +505,28 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                 )
                 == expected[player_id]
             ), (name, season)
+        if "player_stats" in flags:
+            summaries = {}
+            for name, pid in ids.items():
+                response = client.get(f"/api/players/{pid}/stats?season={SEASON}")
+                assert response.status_code == 200, response.json
+                summary = response.json["summary"]
+                summaries[pid] = tuple(
+                    summary.get(k)
+                    for k in (
+                        "appearances",
+                        "minutes",
+                        "goals",
+                        "assists",
+                        "yellows",
+                        "reds",
+                        "saves",
+                        "goals_conceded",
+                    )
+                )
+                if name != "Tobi Olawale":
+                    assert summaries[pid] == expected[pid], (stage, name, "player-stats", response.json)
+            got["player-stats/iOS summary"] = summaries
         kofi = next(p for p in rows if p["player_id"] == ids["Kofi Asante-Reid"])
         assert kofi["provenance"]["primary_source"] == "matches"
         provider = next(p for p in rows if p["player_id"] == ids["Provider"])
@@ -519,7 +545,7 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         for player_id in ids.values():
             rollup.refresh_player(player_id, SEASON)
         db.session.commit()
-    if os.environ.get("PC2_PROOF_PATH"):
+    if os.environ.get("PC2_PROOF_PATH") and provider_kind == "fixtures" and provider_rollup and flags and frozen == "1":
         Path(os.environ["PC2_PROOF_PATH"]).write_text(json.dumps(proof, indent=2))
 
 
@@ -573,6 +599,8 @@ def test_50_row_query_budget_is_constant(app, monkeypatch):
         assert counts["after50"] == counts["after1"]
         assert counts["after50"] <= counts["before50"] + 11
         print("PC2 query counts", counts)
+        if os.environ.get("PC2_QUERY_PROOF_PATH"):
+            Path(os.environ["PC2_QUERY_PROOF_PATH"]).write_text(json.dumps(counts, indent=2))
     finally:
         event.remove(db.engine, "before_cursor_execute", record)
 

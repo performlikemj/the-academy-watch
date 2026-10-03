@@ -478,6 +478,8 @@ class TestLocalPlayerUniverse:
             "source_category": "self",
             "source_label": "Self-reported",
             "primary_source": "user",
+            "club_confirmed": 0,
+            "self_reported_only": 9,
         }
 
     def test_source_filter_has_identical_categories(

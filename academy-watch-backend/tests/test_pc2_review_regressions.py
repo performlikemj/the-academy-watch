@@ -7,7 +7,7 @@ from pathlib import Path
 from time import perf_counter
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from src.auth import issue_user_token
 from src.models.follow import Follow, PlayerShadow
 from src.models.funding import ClubProgram
@@ -284,7 +284,7 @@ def test_card_plain_bio_and_nonprimary_approved_photo(app):
     ids, _user, _list = seed_personas()
     local = -ids["Kofi Asante-Reid"]
     profile = PlayerShowcaseProfile.query.filter_by(local_player_id=local).one()
-    profile.bio = "<b>Tom & Jerry</b>\nFast > strong " + "a" * 140 + " & end"
+    profile.bio = "<b>Tom & Jerry</b>\nFast > strong &AMP; &#128512; " + "a" * 140 + " & end"
     PlayerShowcaseMedia.query.filter_by(local_player_id=local, status="approved").update({"is_primary": False})
     db.session.commit()
     row = next(
@@ -293,6 +293,7 @@ def test_card_plain_bio_and_nonprimary_approved_photo(app):
         if p["player_id"] == -local
     )
     assert row["bio_line"].startswith("Tom & Jerry Fast > strong ")
+    assert "&AMP; &#128512;" in row["bio_line"]  # preserve literal user entities
     assert len(row["bio_line"]) <= 160 and "&amp;" not in row["bio_line"] and "\n" not in row["bio_line"]
     assert row["approved_photo_url"].endswith("/pc2/approved.jpg")
     assert "pending.jpg" not in json.dumps(row)
@@ -387,14 +388,23 @@ def test_postgres_four_thousand_reports_no_bind_cliff_and_rebuilt_skips_history(
         ],
     )
     db.session.commit()
+    db.session.execute(text("ANALYZE"))  # realistic planner statistics on this owned bulk fixture
     from src.routes.scout import _scout_identity_subquery
 
     parameters = []
+    timings = []
 
     def record(_conn, _cursor, statement, params, _context, _many):
         parameters.append(len(params))
+        _context.pc2_started = perf_counter()
+
+    def completed(_conn, _cursor, statement, params, context, _many):
+        timings.append(
+            {"seconds": round(perf_counter() - context.pc2_started, 3), "sql": statement[:700], "binds": len(params)}
+        )
 
     event.listen(db.engine, "before_cursor_execute", record)
+    event.listen(db.engine, "after_cursor_execute", completed)
     proof = {}
     try:
         client = app.test_client()
@@ -419,14 +429,25 @@ def test_postgres_four_thousand_reports_no_bind_cliff_and_rebuilt_skips_history(
         def unexpected(*a, **kw):
             raise AssertionError("rebuilt reports loaded raw history for merging")
 
+        db.session.execute(text("ANALYZE"))
         monkeypatch.setattr(numbers, "merge_match_lines", unexpected)
         start = perf_counter()
         projection = numbers.scout_totals_projection(_scout_identity_subquery(), SEASON)
         rows = db.session.execute(projection.select().where(projection.c.player_api_id >= 100000)).all()
         assert len(rows) == 4000 and all(row.minutes == 90 for row in rows)
         proof["rebuilt_projection_seconds"] = round(perf_counter() - start, 3)
+        for path in (
+            f"/api/scout/players?season={SEASON}&per_page=50",
+            f"/api/scout/leaderboards?season={SEASON}&source=self",
+        ):
+            start = perf_counter()
+            response = client.get(path)
+            assert response.status_code == 200, response.json
+            proof["rebuilt " + path] = round(perf_counter() - start, 3)
         proof["max_bind_parameters"] = max(parameters)
+        proof["slow_queries"] = sorted(timings, key=lambda item: item["seconds"], reverse=True)[:8]
         if os.environ.get("PC2_REVIEW_SCALE_PROOF"):
             Path(os.environ["PC2_REVIEW_SCALE_PROOF"]).write_text(json.dumps(proof, indent=2))
     finally:
         event.remove(db.engine, "before_cursor_execute", record)
+        event.remove(db.engine, "after_cursor_execute", completed)

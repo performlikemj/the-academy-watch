@@ -1539,7 +1539,17 @@ def public_data_labels(response):
         payload.update(public_match_data=metadata, as_of=metadata["as_of"], source_label=metadata["source"])
         if "summary" in payload and api_football_frozen():
             summary = payload["summary"]
-            separated = separated_season_stats(player_id, summary["season"], dict(summary))
+            provenance = payload.get("provenance") or {}
+            # The route already source-selected and authorized this summary.
+            # Retain it when adding frozen evidence panels, without another read.
+            primary_source = provenance.get("primary_source")
+            selected = PlayerSeasonTotal(**summary, primary_source=primary_source) if primary_source else None
+            separated = separated_season_stats(
+                player_id,
+                summary["season"],
+                {**summary, "provenance": provenance},
+                merged_total=selected,
+            )
             payload["summary"] = {key: separated[key] for key in summary}
             for key in ("public_match_data", "club_verified", "self_reported"):
                 payload[key] = separated[key]

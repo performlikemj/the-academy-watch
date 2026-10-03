@@ -289,7 +289,7 @@ def test_digest_eligibility_queries_once_per_player_per_run_across_pages(app, de
         assert evaluations == Counter({1800: run, 1810: run})
         # Four source/hold queries per check, independent of eight watchers and
         # four pages. List resolution batches both IDs in one check.
-        assert len(queries) == run * (4 if source == "list" else 8)
+        assert len(queries) == run * 4  # one eligibility batch shared by watchlist and list assembly
     assert ScoutWatchlistEntry.query.filter_by(player_api_id=1810).count() >= 1
     assert FollowPlayerSnapshot.query.count() == 0  # dry runs never persist baselines
 
