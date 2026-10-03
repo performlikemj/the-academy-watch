@@ -89,3 +89,8 @@
 - Next: targeted proof, final-head four cached gates + PG lane + one own browser run/screenshots; push, bounded25min CI, external logs/PC2F3.final.md; no schema/production/staging/deploy/merge.
 - Done: shared provider fallback handles absent old/canonical reports; frozen provenance preserved; all-src import/read guard reverses56+7allowed-file variants; libpq env/service validation reverses10 probes. Targeted120PASS/1PG skip; matrix8fixture configsPASS after CSV explicit-ID/flag-OFF stats addition. PG50 budget11baseline→22report/27provider,1=50; one44-IDprovider batch/request. CLI dry8/7/6figures/2losses0.661s; resume2+6, repeatedfull/partial undo7/6skip[-2] proven. Full receipts external PC2F3-{queries,rebuild}.json. No migration/frontend/dependency changes; maine510612a already included.
 - Now: final source validation/delivery; exact final-head receipts and DONE are authoritative in external logs/PC2F3.final.md and BUS after push.
+
+## PC2F4
+- Now: union RPC2V4-X2Medium / O5Small; natural source cells and canonical writer/provider queue-lag regressions.
+- Main84dac1d2 merged; instruction/continuity conflicts preserve both histories. No schema or production/staging operation.
+- Next: shared current-evidence projection, no-exemption guard, all-field endpoint equality; targeted checks then final-head gates/PG/browser/push/CI. Final receipts external logs/PC2F4.final.md.
