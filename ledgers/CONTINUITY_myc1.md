@@ -12,5 +12,6 @@
 - Decision: extend matrix with player detail URL; unauthorized views keep existing map fallback and preserve URL.
 - Typecheck: UNAVAILABLE — JavaScript frontend has no typecheck script or tsconfig; use required lint/build gates.
 - State: implementation complete; final-head browser run, four cached gates, push/PR/CI and cleanup receipts are authoritative in the external MYC1.final.md (written after validation).
-- Next: before/after Matches 390/1440; role/page/slow/failure browser matrix; four cached final-head gates; push/PR/CI bounded 25 min.
+- Candidate validation 99ddbce8: browser 48 PASS / 1 test-selector FAIL (legacy club title appears in both claim h3 and moderation h2); corrected to assert moderation h2. Production sources unchanged. Three cached gates PASS; let running backend gate finish.
+- Next: corrected final-head browser run and four cached gates; ready PR/CI bounded 25 min; external delivery receipt.
 - Delivery receipt: ~/codex-runs/aw-redesign/logs/MYC1.final.md.

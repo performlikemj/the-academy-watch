@@ -173,7 +173,7 @@ test('legacy claims keep their moderation workspace; flag OFF makes no staff req
   const state = await mock(page, { legacy: true, flag: false })
   await page.goto('/my-club')
   await expect(page.getByText('Your club claims')).toBeVisible()
-  await expect(page.getByRole('heading', { name: program.name })).toBeVisible()
+  await expect(page.getByRole('heading', { name: program.name, level: 2 })).toBeVisible()
   expect(await page.evaluate(() => window.clubEmptyFlashed)).toBe(false)
   expect(state.calls.filter(p => p === endpoints.staff)).toHaveLength(0)
 })
