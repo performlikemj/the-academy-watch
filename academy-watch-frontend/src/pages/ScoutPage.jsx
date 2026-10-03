@@ -1,6 +1,10 @@
 import { CleatLoader } from '@/components/CleatLoader'
 import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
 import { positionAbbreviation } from '@/lib/positions'
+// --- p2-c4 begin ---
+import { useScoutAttend } from '@/components/attendance/useScoutAttend'
+import { ScoutClubsTrials, ScoutTabs } from '@/components/attendance/ScoutClubsTrials'
+// --- p2-c4 end ---
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -518,7 +522,17 @@ export function ScoutPage() {
   return <ScoutDeskBody key={viewer} />
 }
 
+// --- p2-c4 begin ---
 function ScoutDeskBody() {
+  const life = useViewerLifetime()
+  const api = life.api
+  const enabled = useScoutAttend(api)
+  const [params] = useSearchParams()
+  return enabled && params.get('desk') === 'clubs' ? <ScoutClubsTrials /> : <PlayerScoutPage clubsEnabled={enabled} />
+}
+// --- p2-c4 end ---
+
+function PlayerScoutPage({ clubsEnabled }) {
   // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
   const life = useViewerLifetime()
   const api = life.api
@@ -947,6 +961,7 @@ function ScoutDeskBody() {
             </>
           )}
         >
+          {clubsEnabled && <ScoutTabs />}
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
             <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-full border border-chalk/25 px-5 transition-colors focus-within:border-gold">
               <Search className="h-[18px] w-[18px] shrink-0 text-muted-dark" aria-hidden="true" />
