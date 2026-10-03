@@ -21,6 +21,13 @@ from src.services.gol_sandbox import execute_analysis
 from src.services.gol_service import GolService
 
 
+@pytest.fixture(autouse=True)
+def analysis_available(monkeypatch):
+    monkeypatch.setenv("GOL_PROVIDER", "openai")
+    monkeypatch.setenv("GOL_MAINTENANCE", "false")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
+
+
 def test_sqlite_numeric_loader():
     engine = sa.create_engine("sqlite://")
     metadata = sa.MetaData()

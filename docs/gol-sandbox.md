@@ -4,12 +4,9 @@ The chat service executes model-written analysis code from the `run_analysis` to
 against adult-filtered request DataFrames. Authentication and the 20/minute route
 limit are access controls; they do not make generated code trustworthy.
 
-The original implementation compiled with RestrictedPython, omitted imports,
-restricted underscore/inspection/format attributes, limited displayed rows to 100,
-and waited 10 seconds on a daemon thread. It nevertheless exposed full pandas and
-numpy module namespaces, inherited mutable/version-dependent safe builtins, added
-`type`, returned every object from the item/write guards, and formatted unknown
-results with `str`. The module namespaces exposed operating-system capabilities.
+RestrictedPython compiles the analysis code, while explicit capabilities restrict
+library access and returned values. The executor runs synchronously inside a
+fresh OS-restricted child; its parent owns the hard deadline and cleanup.
 
 `src/services/gol_capabilities.py` now owns the explicit library names, builtins,
 receiver types, attributes and methods. Guard checks happen before attribute
@@ -31,7 +28,7 @@ scalar-argument stored-data helpers; reflection on them is refused.
 Item, iterator/unpacking, write and augmented-assignment guards restrict receiver
 kinds. Attribute writes permit only validated DataFrame labels and Series
 labels/name. Input cells/labels/metadata must contain plain data. Pandas 3 copy-on-write isolates table mutations without another deep data copy; nested object containers are still cloned. Helpers never fall back to a DB/API name
-resolver. New library capabilities require compatibility and escape tests.
+resolver. New library capabilities require classification and compatibility tests.
 
 The result must be an exact DataFrame/Series or approved scalar/list/tuple/dict.
 Cells, labels, index and metadata are recursively validated before row conversion
@@ -42,40 +39,28 @@ Errors never echo rejected values, compiler details or exception text.
 
 ## Limits and remaining risk
 
-Preparation, execution and formatting share the existing 10-second thread wait.
+Transfer, preparation, execution and formatting share the parent's 10-second
+analysis wall budget after bootstrap.
 Code is limited to 20,000 characters and 4,000 AST nodes; restricted Python frames
 have a 3,000,000 trace-event budget and deadline check. Imports/classes/async code,
 bare exception handlers and `finally` clauses are refused. Rendered output has a shared 20,000-value budget, depth20 and a 10,000-character limit per string (including dictionary keys); tables still truncate to100 rows with `truncated: true`. Typed columns and indexes are validated by dtype; only object columns/indexes and categorical labels need Python value checks, including omitted rows. Common numpy shape
 allocators have a one-million-cell precheck and explicit allocation dtypes are
 limited to16 bytes per element.
 
-These are cheap bounds, **not hard CPU or memory isolation**. Large string/list
-multiplications, joins, repeats, casts, regexes and native numerical work can still
-consume resources before a guard runs. Native code can delay asynchronous thread
-termination. A thread timeout stops waiting, then requests best-effort SystemExit;
-it does not guarantee the thread died. On the 0.5CPU/1Gi production container this
-can starve workers/health checks or OOM/restart the process. No intentionally huge
-allocation or native runaway is exercised in tests. The allowlists also depend on
-pandas/numpy implementations; dependency changes must rerun the corpus.
+The first-layer bounds limit common resident operations. The process layer below
+adds mandatory filesystem/network restrictions, hard CPU/address-space limits,
+RSS supervision, bounded concurrency and parent SIGKILL/reaping. Large joins,
+callbacks and native operations can still reach a resource limit and return a
+neutral refusal. The capability and process policies depend on library and OS
+implementations; dependency/platform changes must rerun the corpus.
 
-The stronger follow-up is a separate, killable worker process/container with a
-minimal environment and no credentials, denied network/filesystem access, strict
-CPU/address-space limits (or cgroup limits), bounded concurrency and plain bounded
-IPC. Pass only eligible frame data; enforce the deadline in the parent, kill and
-reap on timeout, and validate returned data again. Account for dataframe copying,
-spawn/startup cost, Linux production vs macOS tests, and deployment packaging.
+## Operational control
 
-## Interim operational control
-
-There is **no existing dedicated analysis/chat OFF flag**. `API_FOOTBALL_FROZEN`
-removes live lookups but keeps `run_analysis`; billing flags only control metering.
-`GOL_PROVIDER` chooses the client in `GolService.__init__`: `openrouter` requires
-`OPENROUTER_API_KEY`; other values select OpenAI and require `OPENAI_API_KEY`.
-Absent credentials for the selected provider cause initialization to raise and
-`routes/gol.py` to return503 for new executions. Removing a selected provider key
-is an operator configuration option, not a dedicated switch: it can affect other
-features, does not cancel existing streams, and stored replays do not initialize
-that client. No production configuration change was made or tested by this lane.
+`GOL_MAINTENANCE` pauses the assistant at request time. Missing credentials for
+the selected provider also pause it. The maintenance section below documents
+fresh questions, reservation recovery, active streams and browser availability.
+`API_FOOTBALL_FROZEN` keeps stored analysis available and does not replace the
+maintenance switch. This lane changes no production configuration.
 
 ## Verification and adjacent evaluation audit
 
@@ -94,7 +79,7 @@ size/time limits and unsupported operations; compiler/exception text never reach
 the response. Service retry hints recognize the execution-limit category. Runaway
 restricted Python loops stop at the event cap or 10-second wall-clock deadline,
 whichever comes first, even inside a permitted exception handler. Native library
-work retains the thread-isolation limitation described above.
+work is bounded by the child resource limits and the parent's hard deadline.
 
 Stored-frame team-name helpers use `Team <id>` when neither the `teams` nor
 `team_profiles` frame contains the name. They do not consult a database or API.
@@ -283,6 +268,99 @@ other matches were regex/SQL compilation and neural-network `.eval()` mode calls
 - `transform("pct_change")`: dispatches only this reviewed resident-data transform, rather than an arbitrary method name.
 - `transform("rank")`: dispatches only this reviewed resident-data transform, rather than an arbitrary method name.
 - `transform("shift")`: dispatches only this reviewed resident-data transform, rather than an arbitrary method name.
+
+## Process isolation for the analysis tool
+
+`execute_analysis` supervises a new Python interpreter for every call. The
+RestrictedPython capability guards remain the first layer inside that interpreter.
+The synchronous executor, frame checks and result formatter run only after the
+worker has installed its mandatory OS policy. There is no in-process fallback.
+The worker imports analysis modules and the standard library, without importing
+Flask, the application, models, provider clients or database services. Native BLAS
+threads are disabled during the trusted bootstrap. Named timezone data and the
+required lazy NumPy/pandas modules are loaded before filesystem restrictions.
+
+The parent launches with `env={}`, isolated Python settings (`-I -B`), closed
+inherited descriptors and three pipes. Bootstrap uses fixed thread settings and
+clears its environment before accepting input. Each call has its own empty
+temporary working directory, removed after the child has been killed/reaped.
+No analysis input or output is written to a file. The transport is versioned JSON:
+fixed numeric dtypes use base64 little-endian buffers, strings use dictionary
+encoding, and object values use a fixed set of plain-data tags. It never uses
+pickle or imports types named by the payload. Numeric buffers cannot carry
+executable objects. Frame dtype/index/category checks run before encoding and
+after reconstruction. The input cap is 128 MiB and 16 million resident cells,
+with an additional 128 MiB deep frame-memory budget before serialization. The
+output cap is 2 MiB; the parent checks the DTO shape and reuses `plain_value`.
+The existing 100-row and result-value limits still apply.
+
+Linux requires Landlock ABI 3 or later and libseccomp. Landlock permits file and
+directory reads only below the disposable working directory; filesystem writes,
+execution, creation and truncation are denied. A default-deny seccomp filter
+allows the syscalls needed for resident analysis and pipes, while denying socket
+creation, network operations, process/thread creation, exec, other-process memory
+access, namespace changes and resource-limit changes. The bootstrap must have
+one thread before Landlock is installed; seccomp also requires thread
+synchronization. `no_new_privs` makes these restrictions irreversible. Linux
+filesystem metadata calls remain available; they do not grant file contents.
+The Docker image installs `libseccomp2` and runs as the existing non-root `app`
+user. Landlock and seccomp can be installed without additional capabilities when
+the host kernel/runtime supports them. See the [Linux Landlock documentation](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html)
+and [seccomp API](https://man7.org/linux/man-pages/man2/seccomp.2.html).
+
+macOS requires a Seatbelt policy: external file reads, all filesystem writes,
+network operations, process creation/exec, process information, Mach operations
+and named POSIX/System V IPC are denied. This uses the deprecated local
+`sandbox_init` interface; if a future macOS release cannot install it, analysis
+refuses. The Linux syscall allowlist and address-space limit are Linux-specific.
+
+Every child has a 10-second hard CPU limit, zero file/core size and niceness +10.
+Linux also has a 768 MiB address-space limit and zero process allowance. The
+parent samples RSS and kills above 448 MiB on Linux or 640 MiB on macOS (which
+has higher measured native allocator overhead). It allows up to
+10 seconds for bootstrap, then 10 seconds for transfer, reconstruction, execution
+and formatting. Expiry, excessive RSS/output, crashes and invalid output produce
+the existing neutral refusal. The parent sends SIGKILL to its owned process
+group and waits; it never relies on thread cancellation. RSS sampling runs every
+25 ms and is a secondary guard; it can briefly overshoot between samples.
+Linux additionally binds the child to its creating parent with an unmaskable
+parent-death SIGKILL and rechecks the expected parent PID during setup. A
+secondary 20-second child alarm bounds interrupted supervision on both systems;
+Linux also blocks changing signal handlers/masks/timers after policy setup.
+
+One analysis/serialization at a time is admitted across Gunicorn workers in the
+container using an advisory file lock. Admission waits at most 30 seconds; a
+full queue refuses. The lock is owned by the application user, mode 0600, opened
+without following symlinks, and released by closing its descriptor. Its empty
+file stays in the container's temporary directory to preserve lock identity.
+Every admitted request gets a distinct single-use child. Maintenance is checked
+before admission, after admission and after serialization; the service also
+retains its early maintenance check. There is no worker pool or reuse between
+users. Logs include bootstrap/elapsed time, peak sampled child RSS and transport
+byte counts; they contain no code, frame values or child exception messages.
+
+Azure Container Apps host kernel support has not been verified by local tests.
+Before release, the operator must confirm a normal stored analysis works on the
+actual non-root image with Landlock and seccomp installed. Unsupported kernels,
+outer runtime restrictions or missing libraries leave the analysis tool refusing;
+they never reduce its isolation. This implementation requests neither privileged
+containers nor network/mount namespaces. Container-wide memory includes the
+Flask workers, cached frames, pending request frames and serialization buffers;
+the per-child limits do not reserve memory for the rest of the application.
+Watch neutral refusal rates, bootstrap/time/RSS logs, admission wait, container
+RSS/OOM events and health-probe latency. Keep adequate measured headroom before
+resuming the assistant. A stronger infrastructure option is a separate
+credential-free analysis job/container with only supplied frames, a dedicated
+resource budget and independently enforced deny-all egress. This separates the
+application's filesystem and credentials; stronger kernel separation would
+require an infrastructure runtime that supplies it.
+
+Run `python scripts/benchmark_gol_isolation.py --rows 100000 200000 --repeats 3`
+for synthetic data with all ten real loader schemas, including the 29-column
+fixture table. It reads repository SQL schemas only and never connects to a DB.
+The hand-back records measurements on macOS and a non-root Linux container
+limited to 0.5 CPU / 1 GiB. Linux policy/resource tests run in the existing
+mandatory Backend Tests CI job; the same corpus also covers macOS locally.
 
 ## Maintenance switch for the assistant
 

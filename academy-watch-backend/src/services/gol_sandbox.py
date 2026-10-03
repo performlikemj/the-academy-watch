@@ -2,15 +2,13 @@
 GOL Sandbox Executor
 
 Executes LLM-generated pandas code in a RestrictedPython sandbox
-with allowlisted builtins, no imports, and a 10-second timeout.
+with allowlisted builtins inside a fresh isolated analysis process.
 """
 
 import ast
 import copy
-import ctypes
 import logging
 import sys
-import threading
 import time
 
 import numpy as np
@@ -1087,7 +1085,7 @@ def _build_helpers(dataframes: dict) -> dict:
     }
 
 
-def execute_analysis(code: str, dataframes: dict, display: str = "table", description: str = "") -> dict:
+def _execute_analysis(code: str, dataframes: dict, display: str = "table", description: str = "") -> dict:
     """
     Execute pandas code in a restricted sandbox.
 
@@ -1238,12 +1236,7 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
         finally:
             sys.settrace(None)
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    thread.join(timeout=TIMEOUT_SECONDS)
-    if thread.is_alive():
-        _kill_thread(thread)
-        return {"result_type": "error", "error": "Analysis timed out (10s limit)", "display": display}
+    _run()
 
     formatted = outcome[0]
     formatted["display"] = display
@@ -1252,14 +1245,11 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
     return formatted
 
 
-def _kill_thread(thread):
-    """Best-effort kill of a daemon thread via async exception."""
-    try:
-        tid = thread.ident
-        if tid is not None:
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), ctypes.py_object(SystemExit))
-    except Exception:
-        pass  # Daemon thread will be cleaned up on process exit
+def execute_analysis(code: str, dataframes: dict, display: str = "table", description: str = "") -> dict:
+    """Run the first-layer executor only inside a fresh isolated process."""
+    from src.services.gol_isolation import run_analysis
+
+    return run_analysis(code, dataframes, display, description)
 
 
 def _inplacevar(op, x, y):
