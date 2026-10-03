@@ -10,3 +10,7 @@
 
 - Final-gate correction: d99c4949 full backend5174 PASS/1716 SKIP/3 FAIL exposed legacy `_mask_email` dry-run consumers; restored original preview behavior, shared logging mask retained. Affected profile controls and corrected final-head gates follow; exact delivery state external.
 - Corrected focused156 PASS (all53 new logging controls +103 existing auth/result/profile-notification checks); legacy dry-run outputs retained. Corrected final-head four cached gates running once.
+
+- LOGPIIF1 in progress: reviewed both independent findings (cross files absent by lead direction); union covers scanner/handlers/CLI/admin correlation/performance/fail-closed/guard/structured types/token snippets. Explicit masks remain; final merge-main, targeted regressions, four cached gates and push pending.
+
+- LOGPIIF1 targeted204 PASS + actual startup/force-basicConfig PASS; real auth/Mailgun/SMTP variants, emitted Gunicorn/SQLAlchemy/private/late output, CLI stderr, admin colliding masks, curator string team ID, bounded scan and failure controls. Current main fetched8696a4de; merging before final gates.

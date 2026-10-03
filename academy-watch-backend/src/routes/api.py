@@ -8103,8 +8103,9 @@ def admin_bulk_publish_newsletters():
         db.session.commit()
 
         logger.info(
-            "Admin bulk publish user=%s publish=%s updated=%s unchanged=%s selection=%s meta=%s",
-            getattr(g, "user_email", None),
+            "Admin bulk publish user=%s user_id=%s publish=%s updated=%s unchanged=%s selection=%s meta=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
             publish_flag,
             updated,
             unchanged,
@@ -8419,8 +8420,9 @@ def admin_bulk_delete_newsletters():
             db.session.commit()
 
         logger.info(
-            "Admin bulk delete user=%s deleted=%s selection=%s meta=%s",
-            getattr(g, "user_email", None),
+            "Admin bulk delete user=%s user_id=%s deleted=%s selection=%s meta=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
             deleted_count,
             target_ids,
             meta,
@@ -8632,8 +8634,9 @@ def admin_send_digest_emails():
         result = send_digest_emails(week_key)
 
         logger.info(
-            "Admin triggered digest send user=%s week=%s result=%s",
-            getattr(g, "user_email", None),
+            "Admin triggered digest send user=%s user_id=%s week=%s result=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
             week_key,
             result,
         )
@@ -8780,8 +8783,9 @@ def admin_add_team_subreddit():
         db.session.commit()
 
         logger.info(
-            "Admin added team subreddit user=%s team_id=%s subreddit=%s",
-            getattr(g, "user_email", None),
+            "Admin added team subreddit user=%s user_id=%s team_id=%s subreddit=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
             team_id,
             subreddit_name,
         )
@@ -8823,7 +8827,10 @@ def admin_update_team_subreddit(subreddit_id: int):
         db.session.commit()
 
         logger.info(
-            "Admin updated team subreddit user=%s subreddit_id=%s", getattr(g, "user_email", None), subreddit_id
+            "Admin updated team subreddit user=%s user_id=%s subreddit_id=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
+            subreddit_id,
         )
 
         return jsonify({"subreddit": subreddit.to_dict(), "message": "Subreddit mapping updated"})
@@ -8849,8 +8856,9 @@ def admin_delete_team_subreddit(subreddit_id: int):
         db.session.commit()
 
         logger.info(
-            "Admin deleted team subreddit user=%s subreddit_id=%s team_id=%s subreddit=%s",
-            getattr(g, "user_email", None),
+            "Admin deleted team subreddit user=%s user_id=%s subreddit_id=%s team_id=%s subreddit=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
             subreddit_id,
             team_id,
             subreddit_name,
@@ -8975,8 +8983,9 @@ def admin_post_newsletter_to_reddit(newsletter_id: int):
         failed_count = sum(1 for r in results if r.get("status") == "failed")
 
         logger.info(
-            "Admin posted newsletter to Reddit user=%s newsletter_id=%s success=%s already=%s failed=%s",
-            getattr(g, "user_email", None),
+            "Admin posted newsletter to Reddit user=%s user_id=%s newsletter_id=%s success=%s already=%s failed=%s",
+            mask_email(getattr(g, "user_email", None)),
+            getattr(g, "log_actor_id", None),
             newsletter_id,
             success_count,
             already_posted,

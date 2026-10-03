@@ -386,10 +386,10 @@ def require_api_key(f):
 
         if not token_data:
             logger.warning(
-                "Admin token missing or invalid ip=%s endpoint=%s auth_sample=%s",
+                "Admin token missing or invalid ip=%s endpoint=%s auth_present=%s",
                 client_ip,
                 request.endpoint,
-                auth_header[:32],
+                bool(auth_header),
             )
             return jsonify({"error": "Admin login required", "message": "Provide a valid admin Bearer token"}), 401
 
@@ -409,28 +409,32 @@ def require_api_key(f):
 
         if not provided_key:
             logger.warning(
-                "Admin API key missing ip=%s user=%s endpoint=%s auth_sample=%s",
+                "Admin API key missing ip=%s user=%s user_id=%s endpoint=%s auth_present=%s",
                 client_ip,
-                getattr(g, "user_email", None),
+                mask_email(getattr(g, "user_email", None)),
+                token_data.get("user_id"),
                 request.endpoint,
-                auth_header[:32],
+                bool(auth_header),
             )
             return jsonify({"error": "Admin API key required", "message": "Send X-API-Key in the request headers"}), 401
 
         if provided_key != required_api_key:
             logger.warning(
-                "Invalid admin credential ip=%s user=%s endpoint=%s key=%s",
+                "Invalid admin credential ip=%s user=%s user_id=%s endpoint=%s key=%s",
                 client_ip,
-                getattr(g, "user_email", None),
+                mask_email(getattr(g, "user_email", None)),
+                token_data.get("user_id"),
                 request.endpoint,
                 masked_key,
             )
             return jsonify({"error": "Invalid admin credential", "message": "Access denied"}), 403
 
+        g.log_actor_id = token_data.get("user_id")
         logger.info(
-            "Admin dual auth granted ip=%s user=%s endpoint=%s key=%s",
+            "Admin dual auth granted ip=%s user=%s user_id=%s endpoint=%s key=%s",
             client_ip,
-            getattr(g, "user_email", None),
+            mask_email(getattr(g, "user_email", None)),
+            token_data.get("user_id"),
             request.endpoint,
             masked_key,
         )

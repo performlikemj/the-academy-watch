@@ -402,7 +402,7 @@ def bridge_match_to_club(*, match_id: int, manager_email: str, program_name: str
 
     manager = UserAccount.query.filter(func.lower(UserAccount.email) == normalized_email).first()
     if manager is None:
-        raise BridgeRefused(f"manager account {normalized_email!r} was not found")
+        raise BridgeRefused(f"manager account {mask_email(normalized_email)!r} was not found")
     match = db.session.get(VideoMatch, match_id)
     if match is None:
         raise BridgeRefused(f"video match {match_id} was not found")

@@ -2450,7 +2450,11 @@ def submit_coverage_request():
         db.session.commit()
 
         logger.info(
-            f"Writer {user.id} ({mask_email(user.email)}) submitted coverage request for {coverage_type}: {team_name}"
+            "Writer %s (%s) submitted coverage request for %s: %s",
+            user.id,
+            mask_email(user.email),
+            coverage_type,
+            team_name,
         )
 
         return jsonify({"message": "Coverage request submitted", "request": coverage_request.to_dict()}), 201
@@ -3552,7 +3556,10 @@ def create_placeholder_writer():
         db.session.commit()
 
         logger.info(
-            f"Editor {editor.id} created placeholder writer {writer.id} ({mask_email(writer.email) if writer.email else writer.display_name})"
+            "Editor %s created placeholder writer %s (%s)",
+            editor.id,
+            writer.id,
+            mask_email(writer.email) if writer.email else writer.display_name,
         )
 
         return jsonify({"message": "Placeholder writer created", "writer": writer.to_dict()}), 201
@@ -3884,7 +3891,7 @@ def send_claim_invite(writer_id):
                 claim_url=claim_url,
                 inviter_name=editor.display_name,
             )
-            logger.info(f"Sent claim invite to {mask_email(writer.email)} for writer {writer_id}")
+            logger.info("Sent claim invite to %s for writer %s", mask_email(writer.email), writer_id)
         except Exception as email_err:
             logger.warning(f"Failed to send claim email: {email_err}")
             # Still return success - token was generated
@@ -3978,7 +3985,7 @@ def complete_claim():
         # Issue auth token for the writer
         auth_data = issue_user_token(writer.email, role="user")
 
-        logger.info(f"Writer {writer.id} ({mask_email(writer.email)}) claimed their account")
+        logger.info("Writer %s (%s) claimed their account", writer.id, mask_email(writer.email))
 
         return jsonify({"message": "Account claimed successfully", "user": writer.to_dict(), **auth_data})
 

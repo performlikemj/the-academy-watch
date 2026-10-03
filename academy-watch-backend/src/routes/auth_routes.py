@@ -134,7 +134,7 @@ def _send_login_code(email: str, code: str):
             print(msg)
         except Exception:
             pass
-        logger.info(msg)
+        logger.info("[DEV] Login code for %s: %s (expires in 5 minutes)", mask_email(email), code)
 
 
 def _user_rate_limit_key() -> str | None:

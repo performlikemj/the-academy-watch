@@ -13,7 +13,7 @@ import requests
 from src.auth import _ensure_user_account
 from src.models.league import EmailToken, Newsletter, NewsletterDigestQueue, Team, UserAccount, db
 from src.services.email_service import EmailResult, EmailService
-from src.utils.log_privacy import EmailLogFilter, get_logger, mask_email
+from src.utils.log_privacy import EmailLogFilter, _scan_text, get_logger, mask_email
 
 EMAIL = "john.private@example.com"
 OTHER = "jane.private@example.net"
@@ -244,7 +244,13 @@ EMAIL_NAMES = {
     "reply_to",
     "address",
     "recipients",
+    "to",
 }
+
+
+def email_name(value):
+    name = value.lower()
+    return name in EMAIL_NAMES or name.endswith(("_email", "_emails")) or name.startswith("email_address")
 
 
 def unmasked_email_nodes(node):
@@ -259,15 +265,22 @@ def unmasked_email_nodes(node):
         return []
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in SAFE_WRAPPERS:
         return []
-    if isinstance(node, ast.Name) and node.id.lower() in EMAIL_NAMES:
-        return [node]
-    if isinstance(node, ast.Attribute) and node.attr.lower() in EMAIL_NAMES:
-        return [node]
     if (
-        isinstance(node, ast.Subscript)
-        and isinstance(node.slice, ast.Constant)
-        and str(node.slice.value).lower() in EMAIL_NAMES | {"manager_email"}
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) > 1
+        and isinstance(node.args[1], ast.Constant)
+        and email_name(str(node.args[1].value))
     ):
+        return [node]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and _scan_text(node.value) != node.value:
+        return [node]
+    if isinstance(node, ast.Name) and email_name(node.id):
+        return [node]
+    if isinstance(node, ast.Attribute) and email_name(node.attr):
+        return [node]
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and email_name(str(node.slice.value)):
         return [node]
     return [found for child in ast.iter_child_nodes(node) for found in unmasked_email_nodes(child)]
 
@@ -275,27 +288,27 @@ def unmasked_email_nodes(node):
 def test_backend_logging_calls_mask_email_variables():
     root = Path(__file__).resolve().parents[1]
     failures = []
-    for folder in ("src", "scripts"):
-        for path in (root / folder).rglob("*.py"):
-            tree = ast.parse(path.read_text())
-            for call in ast.walk(tree):
-                if not isinstance(call, ast.Call):
+    paths = [*root.glob("*.py"), *(root / "src").rglob("*.py"), *(root / "scripts").rglob("*.py")]
+    for path in paths:
+        tree = ast.parse(path.read_text())
+        for call in ast.walk(tree):
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            logging_call = (
+                isinstance(func, ast.Attribute)
+                and func.attr in {"debug", "info", "warning", "error", "exception", "critical", "log"}
+                and ("logger" in ast.unparse(func.value).lower() or "logging" in ast.unparse(func.value))
+            )
+            print_call = isinstance(func, ast.Name) and func.id == "print"
+            if not (logging_call or print_call):
+                continue
+            for arg in [*call.args, *(kw.value for kw in call.keywords)]:
+                # Already-built masked recipient list in EmailService.
+                if isinstance(arg, ast.Name) and arg.id == "masked_recipients":
                     continue
-                func = call.func
-                logging_call = (
-                    isinstance(func, ast.Attribute)
-                    and func.attr in {"debug", "info", "warning", "error", "exception", "critical", "log"}
-                    and ("logger" in ast.unparse(func.value).lower() or "logging" in ast.unparse(func.value))
-                )
-                print_call = isinstance(func, ast.Name) and func.id == "print"
-                if not (logging_call or print_call):
-                    continue
-                for arg in [*call.args, *(kw.value for kw in call.keywords)]:
-                    # Already-built masked recipient list in EmailService.
-                    if isinstance(arg, ast.Name) and arg.id == "masked_recipients":
-                        continue
-                    if unmasked_email_nodes(arg):
-                        failures.append(f"{path.relative_to(root)}:{call.lineno}: {ast.unparse(call)}")
+                if unmasked_email_nodes(arg):
+                    failures.append(f"{path.relative_to(root)}:{call.lineno}: {ast.unparse(call)}")
     assert not failures, "Unmasked email log arguments:\n" + "\n".join(failures)
 
 
@@ -361,6 +374,14 @@ def test_verify_error_logging(auth_client, monkeypatch, caplog):
     ("expression", "unsafe"),
     [
         ("email", True),
+        ("'john@example.com'", True),
+        ("writer_email", True),
+        ("invite_email", True),
+        ("contact_email", True),
+        ("email_address", True),
+        ("to", True),
+        ("getattr(g, 'user_email', None)", True),
+        ("mask_email(getattr(g, 'user_email', None))", False),
         ("f'{user.email}'", True),
         ("{'recipient': user_email}", True),
         ("mask_email(email)", False),
