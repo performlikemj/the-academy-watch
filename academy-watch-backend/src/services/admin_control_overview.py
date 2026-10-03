@@ -36,12 +36,12 @@ def queue_counts(enabled):
         (
             "club_profiles",
             "Club profile revisions",
-            "/admin/funding?tab=claims",
+            "/admin/funding?tab=content",
             ClubProgramProfileRevision,
             "pending",
             "programs",
         ),
-        ("club_updates", "Club updates", "/admin/funding?tab=claims", ClubProgramUpdate, "pending", "programs"),
+        ("club_updates", "Club updates", "/admin/funding?tab=content", ClubProgramUpdate, "pending", "programs"),
         (
             "scout_verifications",
             "Scout verifications",

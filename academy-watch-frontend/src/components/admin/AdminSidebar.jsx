@@ -206,12 +206,12 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                     <span className="truncate">{item.label}</span>
                 )}
                 {!collapsed && item.badge === 'inbox' && count > 0 && (
-                    <span data-testid="sidebar-inbox-badge" className="ml-auto font-mono text-[11px] tabular-nums text-gold">
+                    <span data-testid="sidebar-inbox-badge" className="ml-auto text-[13px] tabular-nums text-gold">
                         {count > 99 ? '99+' : count}
                     </span>
                 )}
                 {!collapsed && item.badge === 'trust' && count > 0 && (
-                    <span data-testid="sidebar-trust-badge" className="ml-auto font-mono text-[11px] tabular-nums text-gold">
+                    <span data-testid="sidebar-trust-badge" className="ml-auto text-[13px] tabular-nums text-gold">
                         {count > 99 ? '99+' : count}
                     </span>
                 )}
@@ -219,7 +219,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
         )
     }
 
-    const groupLabelClass = 'font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-[#8C9791]'
+    const groupLabelClass = 'text-[12px] text-[#8C9791]'
 
     return (
         <nav
@@ -239,7 +239,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                 >
                     <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-8 w-8 shrink-0 rounded-lg" />
                     {!collapsed && (
-                        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-gold">Control room</span>
+                        <span className="text-[15px] font-semibold text-chalk">Control room</span>
                     )}
                 </Link>
 

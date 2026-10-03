@@ -6,7 +6,7 @@ from functools import wraps
 from urllib.parse import quote
 
 import sqlalchemy as sa
-from flask import Blueprint, abort, current_app, g, jsonify, request
+from flask import Blueprint, abort, current_app, g, jsonify, make_response, request
 from src.auth import _admin_email_list, require_api_key
 from src.models.admin_control import (
     BusinessDeploymentState,
@@ -152,12 +152,16 @@ def pagination():
     return max(1, min(100, request.args.get("limit", 30, type=int) or 30)), offset
 
 
+def refuse(message):
+    abort(make_response(jsonify(error=message), 400))
+
+
 def iso(value):
     return value.isoformat() + "Z" if value else None
 
 
-def search_pattern():
-    search = request.args.get("q", "").strip()
+def search_pattern(name="q"):
+    search = request.args.get(name, "").strip()
     if len(search) > 120:
         abort(400, description="Search must be at most 120 characters")
     return "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" if search else None
@@ -197,10 +201,11 @@ def program_dict(program, counts=None):
     }
 
 
-@admin_control_bp.get("/admin/programs")
-@page("programs")
-def programs():
-    limit, offset = pagination()
+PROGRAM_STATUSES = ("pending", "approved", "rejected", "suspended")
+
+
+def programs_query(country=True):
+    """The filtered club list; `country=False` leaves that one filter out for its own option counts."""
     query = ClubProgram.query
     search = search_pattern()
     if search:
@@ -211,11 +216,53 @@ def programs():
                 ClubProgram.region.ilike(search, escape="\\"),
             )
         )
+    status = request.args.get("status", "all")
+    if status == "hidden":
+        query = query.filter(ClubProgram.emergency_hidden.is_(True))
+    elif status in PROGRAM_STATUSES:
+        query = query.filter(ClubProgram.platform_status == status)
+    elif status != "all":
+        refuse("Unknown club status filter")
+    verified = request.args.get("verified", "all")
+    if verified not in {"all", "yes", "no"}:
+        refuse("Unknown verified filter")
+    if verified != "all":
+        query = query.filter(
+            ClubProgram.verified_at.isnot(None) if verified == "yes" else ClubProgram.verified_at.is_(None)
+        )
+    place = request.args.get("country", "").strip()
+    if len(place) > 80:
+        refuse("Country must be at most 80 characters")
+    if country and place:
+        query = query.filter(ClubProgram.country == place)
+    return query
+
+
+@admin_control_bp.get("/admin/programs")
+@page("programs")
+def programs():
+    limit, offset = pagination()
+    query = programs_query()
     rows = query.order_by(ClubProgram.name, ClubProgram.id).offset(offset).limit(limit).all()
     counts = program_counts([row.id for row in rows])
     return jsonify(
         total=query.count(), rows=[program_dict(row, counts[row.id]) for row in rows], limit=limit, offset=offset
     )
+
+
+@admin_control_bp.get("/admin/programs/countries")
+@page("programs")
+def program_countries():
+    # One grouped statement: how many clubs each country holds under the other filters in force.
+    rows = (
+        programs_query(country=False)
+        .with_entities(ClubProgram.country, sa.func.count())
+        .group_by(ClubProgram.country)
+        .order_by(sa.func.count().desc(), ClubProgram.country)
+        .limit(100)
+        .all()
+    )
+    return jsonify(countries=[{"value": value, "count": count} for value, count in rows])
 
 
 @admin_control_bp.get("/admin/programs/<int:program_id>")
@@ -284,7 +331,42 @@ def people_context(ids):
     ):
         if context[row.user_account_id]["verification"] is None:
             context[row.user_account_id]["verification"] = row
+    waiting = waiting_accounts()
+    for (uid,) in db.session.execute(sa.select(waiting.c.user_id).where(waiting.c.user_id.in_(ids))):
+        context[uid]["waiting"] = True
     return context
+
+
+def waiting_accounts():
+    """Accounts with a request an admin has not answered yet: scout, player-profile or club claim."""
+    return sa.union(
+        sa.select(ScoutVerification.user_account_id.label("user_id")).where(ScoutVerification.status == "pending"),
+        sa.select(PlayerProfileClaim.user_account_id).where(PlayerProfileClaim.status == "pending"),
+        sa.select(ClubProgramClaim.user_account_id).where(ClubProgramClaim.status == "pending"),
+    ).subquery()
+
+
+def club_members():
+    """(account, club) pairs behind the club labels on a person: verified managers, plus staff grants when on."""
+    members = (
+        sa.select(
+            ClubProgramManager.user_account_id.label("user_id"), ClubProgramManager.program_id.label("program_id")
+        )
+        .join(ClubProgramClaim, ClubProgramClaim.id == ClubProgramManager.source_claim_id)
+        .where(ClubProgramManager.status == "active", ClubProgramClaim.status == "approved")
+    )
+    if flag_enabled("CLUB_STAFF_ACCESS_ENABLED"):
+        members = sa.union(
+            members,
+            sa.select(ClubAccessGrant.user_account_id, ClubAccessGrant.program_id)
+            .join(ClubProgram, ClubProgram.id == ClubAccessGrant.program_id)
+            .where(
+                ClubAccessGrant.status == "active",
+                ClubProgram.platform_status == "approved",
+                ClubProgram.emergency_hidden.is_(False),
+            ),
+        )
+    return members.subquery()
 
 
 def person_dict(user, context=None):
@@ -320,14 +402,17 @@ def person_dict(user, context=None):
             {"id": program.id, "name": program.name, "status": program.platform_status} for _, program in managers
         ],
         "approved_claims": len(claims),
+        "waiting": bool(context.get("waiting")),
         "scout_verification": {"id": verification.id, "status": verification.status} if verification else None,
     }
 
 
-@admin_control_bp.get("/admin/people")
-@page("people")
-def people():
-    limit, offset = pagination()
+JOINED_DAYS = {"7d": 7, "30d": 30, "year": 365}
+SEEN_DAYS = {"7d": 7, "30d": 30}
+
+
+def people_query(club=True):
+    """The filtered account list; `club=False` leaves that one filter out for its own option counts."""
     query = UserAccount.query.filter(UserAccount.is_tombstone.is_(False))
     search = search_pattern()
     if search:
@@ -362,12 +447,91 @@ def people():
     elif role == "admins":
         query = query.filter(sa.func.lower(UserAccount.email).in_([email.lower() for email in _admin_email_list()]))
     elif role != "all":
-        return jsonify(error="Unknown people filter"), 400
+        refuse("Unknown people filter")
     standing = request.args.get("standing", "all")
-    if standing not in {"all", "active", "suspended"}:
-        return jsonify(error="Unknown standing filter"), 400
-    if standing != "all":
+    if standing not in {"all", "active", "suspended", "waiting"}:
+        refuse("Unknown standing filter")
+    if standing == "waiting":
+        query = query.filter(UserAccount.id.in_(sa.select(waiting_accounts().c.user_id)))
+    elif standing != "all":
         query = query.filter(UserAccount.account_status == standing)
+    verified = request.args.get("verified", "all")
+    if verified not in {"all", "yes", "no"}:
+        refuse("Unknown verified filter")
+    if verified != "all":
+        approved = sa.select(ScoutVerification.user_account_id).where(ScoutVerification.status == "approved")
+        query = query.filter(UserAccount.id.in_(approved) if verified == "yes" else UserAccount.id.not_in(approved))
+    joined = request.args.get("joined", "all")
+    if joined in JOINED_DAYS:
+        query = query.filter(UserAccount.created_at >= now() - timedelta(days=JOINED_DAYS[joined]))
+    elif joined != "all":
+        refuse("Unknown joined filter")
+    seen = request.args.get("seen", "all")
+    if seen in SEEN_DAYS:
+        query = query.filter(UserAccount.last_login_at >= now() - timedelta(days=SEEN_DAYS[seen]))
+    elif seen == "quiet":
+        quiet = now() - timedelta(days=90)
+        query = query.filter(sa.or_(UserAccount.last_login_at.is_(None), UserAccount.last_login_at < quiet))
+    elif seen != "all":
+        refuse("Unknown last-seen filter")
+    wanted = request.args.get("club", "").strip()
+    if club and wanted:
+        members = club_members()
+        if wanted == "none":
+            query = query.filter(UserAccount.id.not_in(sa.select(members.c.user_id)))
+        elif wanted.isdigit() and 0 < int(wanted) <= 2147483647:
+            query = query.filter(
+                UserAccount.id.in_(sa.select(members.c.user_id).where(members.c.program_id == int(wanted)))
+            )
+        else:
+            refuse("Unknown club filter")
+    return query
+
+
+@admin_control_bp.get("/admin/people/clubs")
+@page("people")
+def people_clubs():
+    # One statement: the people each club holds under the other filters in force, and how many hold no club.
+    base = people_query(club=False).with_entities(UserAccount.id.label("id")).subquery()
+    members = club_members()
+    counted = (
+        sa.select(members.c.program_id, sa.func.count(sa.distinct(members.c.user_id)).label("people"))
+        .where(members.c.user_id.in_(sa.select(base.c.id)))
+        .group_by(members.c.program_id)
+        .subquery()
+    )
+    # The chosen club is always listed, even with nobody left in it, so its pill can show its name.
+    wanted = request.args.get("club", "")
+    chosen = ClubProgram.id == int(wanted) if wanted.isdigit() and int(wanted) <= 2147483647 else sa.false()
+    people = sa.func.coalesce(counted.c.people, 0)
+    clubs = (
+        sa.select(ClubProgram.id, ClubProgram.name, people.label("people"))
+        .outerjoin(counted, counted.c.program_id == ClubProgram.id)
+        .where(sa.or_(counted.c.people > 0, chosen))
+    )
+    search = search_pattern("club_q")
+    if search:
+        clubs = clubs.where(ClubProgram.name.ilike(search, escape="\\"))
+    clubs = clubs.order_by(sa.case((chosen, 0), else_=1), people.desc(), ClubProgram.name, ClubProgram.id).limit(50)
+    clubs = clubs.subquery()
+    none = (
+        sa.select(sa.cast(sa.null(), sa.Integer), sa.cast(sa.null(), sa.String), sa.func.count())
+        .select_from(base)
+        .where(base.c.id.not_in(sa.select(members.c.user_id)))
+    )
+    rows = db.session.execute(sa.union_all(sa.select(clubs), none)).all()
+    listed = sorted((row for row in rows if row[0] is not None), key=lambda row: (-row[2], row[1].lower(), row[0]))
+    return jsonify(
+        clubs=[{"id": pid, "name": name, "count": count} for pid, name, count in listed],
+        no_club=next(row[2] for row in rows if row[0] is None),
+    )
+
+
+@admin_control_bp.get("/admin/people")
+@page("people")
+def people():
+    limit, offset = pagination()
+    query = people_query()
     name = sa.func.lower(sa.func.coalesce(sa.func.nullif(UserAccount.display_name, ""), UserAccount.email))
     sorts = {
         "name": (name.asc(), UserAccount.id.asc()),
@@ -377,7 +541,7 @@ def people():
     }
     sort = request.args.get("sort", "name")
     if sort not in sorts:
-        return jsonify(error="Unknown people sort"), 400
+        refuse("Unknown people sort")
     rows = query.order_by(*sorts[sort]).offset(offset).limit(limit).all()
     context = people_context([row.id for row in rows])
     return jsonify(

@@ -31,8 +31,8 @@ for (const width of [1440, 390]) {
             return empty
         })
         for (const [route, heading, message] of [
-            ['programs', 'Every club, one list', 'No programs match this search.'],
-            ['people', 'Everyone on the pitch', 'No accounts match this search.'],
+            ['programs', 'Clubs', 'No clubs match this search.'],
+            ['people', 'People', 'No accounts match this search.'],
             ['safety', 'Keep the game safe', 'No cases in this view.'],
             ['business', 'The books, the switches', 'No recorded cash movements in this date range.'],
         ]) {
@@ -72,10 +72,15 @@ test('program hide and owner assignment call A1 and A2 contracts with reasons', 
     })
     await page.goto('/admin/programs')
     await page.getByRole('button', { name: /Test Program/ }).click()
+    // One primary per panel: the rarer actions sit behind the ⋯ menu.
+    await page.getByLabel('More actions').click()
+    await page.getByRole('button', { name: 'Emergency hide…' }).click()
     await page.getByLabel('Reason for emergency hide').fill('Reported publication')
     await page.getByRole('button', { name: 'Emergency hide', exact: true }).click()
     await page.getByRole('button', { name: 'Confirm emergency hide', exact: true }).click()
-    await expect(page.getByText('Emergency hidden', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Club details').getByText('Emergency hidden', { exact: true })).toBeVisible()
+    await page.getByLabel('More actions').click()
+    await page.getByRole('button', { name: 'Assign owner…' }).click()
     await page.getByLabel('Assign owner', { exact: true }).selectOption('2')
     await page.getByLabel('Reason for assign owner').fill('Explicit assignment')
     await page.getByRole('button', { name: 'Assign owner', exact: true }).click()
@@ -91,6 +96,7 @@ test('people metadata omits injected private content and suspension errors stay 
     await page.getByRole('button', { name: /Test Person/ }).click()
     await expect(page.getByRole('heading', { name: 'Test Person' })).toBeVisible()
     await expect(page.getByText(/PRIVATE .* SENTINEL/)).toHaveCount(0)
+    await page.getByRole('button', { name: 'Suspend…' }).click()
     await page.getByLabel('Reason for suspend account').fill('Review required')
     await page.route('**/api/admin/users/2/suspend', route => route.fulfill({ status: 403, json: { error: 'Suspension denied' } }))
     await page.getByRole('button', { name: 'Suspend account', exact: true }).click()
@@ -152,6 +158,7 @@ test('destructive confirmations name target, warn last owner and cancel without 
     })
     await page.goto('/admin/people')
     await page.getByRole('button', { name: /Only Owner/ }).click()
+    await page.getByRole('button', { name: 'Suspend…' }).click()
     await page.getByLabel('Reason for suspend account').fill('Pending review')
     await page.getByRole('button', { name: 'Suspend account', exact: true }).click()
     const dialog = page.getByRole('dialog')
@@ -167,7 +174,7 @@ test('search is bounded and debounced across fast typing', async ({ page }) => {
     const searches = []
     await mockControl(page, url => { if (url.pathname === '/api/admin/people') searches.push(url.searchParams.get('q')); return empty })
     await page.goto('/admin/people')
-    const input = page.getByRole('textbox', { name: 'Search people' })
+    const input = page.getByRole('searchbox', { name: 'Search people' })
     await expect(input).toHaveAttribute('maxlength', '120')
     await input.fill('a'); await input.fill('ad'); await input.fill('admin')
     await expect.poll(() => searches.at(-1)).toBe('admin')
@@ -356,8 +363,11 @@ test('B3X People standing/sort controls and private admin suspension context', a
         return { ...empty, rows: [person], total: 1 }
     })
     await page.goto('/admin/people')
-    await page.getByLabel('Standing filter').selectOption('suspended')
-    await page.getByLabel('Sort people').selectOption('name_desc')
+    const filters = page.getByRole('group', { name: 'People filters' })
+    await filters.getByRole('button', { name: /^Status: Any/ }).click()
+    await page.getByRole('option', { name: 'Suspended', exact: true }).click()
+    await filters.getByRole('button', { name: /^Sort: Name A–Z/ }).click()
+    await page.getByRole('option', { name: 'Name Z–A', exact: true }).click()
     await expect.poll(() => reads.some(query => query.includes('standing=suspended') && query.includes('sort=name_desc') && query.includes('offset=0'))).toBe(true)
     await page.getByRole('button', { name: /Pete Example/ }).click()
     await expect(page.getByText('Reported account misuse')).toBeVisible()
@@ -424,17 +434,18 @@ test('B3X overview shows queue workload and paying revenue from one DTO', async 
     })
     await page.goto('/admin/dashboard')
     const queue = page.getByTestId('inbox-pending')
-    await expect(queue).toContainText('8 queue items')
-    await expect(queue.getByRole('link', { name: /Open reports/ })).toHaveAttribute('href', '/admin/trust?tab=reports')
-    await expect(queue).toContainText('1 safeguarding first action overdue')
-    await expect(queue.getByText('Nothing pending. Inbox zero.')).toHaveCount(0)
-    await expect(queue).toContainText('A report also appears as a safeguarding case; one decision clears both queues.')
+    // Four queues and one past-due subscription need someone: five rows, nothing listed at zero.
+    await expect(queue.getByRole('listitem')).toHaveCount(5)
+    await expect(queue.getByRole('link', { name: /2 safety reports waiting/ })).toHaveAttribute('href', '/admin/trust?tab=reports')
+    await expect(queue).toContainText('1 past the 24-hour first action')
+    await expect(queue.getByText(/Nothing is waiting/)).toHaveCount(0)
+    await expect(queue).toContainText('A report also appears as a safeguarding case; one decision clears both.')
     await expect(queue).not.toContainText('can need separate decisions')
     await expect(page.getByTestId('revenue-summary')).toContainText('£29.00')
     await expect(page.getByTestId('revenue-summary')).not.toContainText('£70.00')
     await captureFix(page, 'overview-1440')
     await page.setViewportSize({ width: 390, height: 844 })
-    await expect(queue).toContainText('8 queue items')
+    await expect(queue.getByRole('listitem')).toHaveCount(5)
     expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await captureFix(page, 'overview-390')
 })
@@ -444,7 +455,7 @@ test('B3X overview failed counts stay unavailable instead of zero', async ({ pag
     await page.route('**/api/admin/control/overview', route => route.fulfill({ status: 503, json: { error: 'Counts unavailable' } }))
     await page.goto('/admin/dashboard')
     await expect(page.getByTestId('inbox-pending')).toContainText('Review counts unavailable')
-    await expect(page.getByTestId('inbox-pending').getByText('Nothing pending. Inbox zero.')).toHaveCount(0)
+    await expect(page.getByTestId('inbox-pending').getByText(/Nothing is waiting/)).toHaveCount(0)
 })
 
 test('B3X overview all flags OFF keeps legacy requests and revenue', async ({ page }) => {
@@ -457,7 +468,7 @@ test('B3X overview all flags OFF keeps legacy requests and revenue', async ({ pa
     }, {})
     await page.goto('/admin/dashboard')
     await expect(page.getByTestId('revenue-summary')).toContainText('£70.00')
-    await expect(page.getByTestId('inbox-pending')).toContainText('Inbox zero')
+    await expect(page.getByTestId('inbox-pending')).toContainText('Nothing is waiting. All 6 queues are clear.')
     expect(calls.filter(path => path.includes('/admin/control/') || path.includes('/admin/business/'))).toEqual([])
 })
 
@@ -514,8 +525,8 @@ for (const width of [1440, 390]) {
             const slug = route.replace('?tab=', '-')
             await capture(slug)
             if (route === 'dashboard') {
-                await expect(page.getByTestId('inbox-pending')).toContainText('queue items')
-                await expect(page.getByTestId('inbox-pending')).not.toContainText('Inbox zero')
+                await expect(page.getByTestId('inbox-pending').getByRole('listitem').first()).toBeVisible()
+                await expect(page.getByTestId('inbox-pending')).not.toContainText('Nothing is waiting')
                 await expect(page.getByTestId('revenue-summary')).not.toContainText('£70.00')
             }
             if (route === 'people') {
