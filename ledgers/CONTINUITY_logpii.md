@@ -32,3 +32,5 @@
 - LOGPIIF3 in progress: both V3 findings read; source-wide metadata rewrite superseded. Restore main diagnostics; only email-bearing sites remain explicit. Final main comparison, leak/diagnostic tests, four governed gates, push and bounded CI pending.
 
 - LOGPIIF3 narrowed source: unrelated files restored byte-for-byte to current main e510612a. Explicit auth/mail/admin/writer/CLI email masks remain; native provider diagnostics/tracebacks retained, known spaced destinations redacted. Actual Gunicorn Worker.handle_error + bind/control-address controls pass. Focused448 PASS (4 existing warnings); reviewed source lint/diff PASS. Final source commit, four cached gates, push and bounded CI receipts maintained in external LOGPIIF3.final.md with complete inventory in LOGPIIF3.inventory.md / audit.json. No lane migration/frontend/UI changes.
+
+- LOGPIIF3 final preservation probe found cyclic argument repr gained a nesting level during copying. Ordinary arguments now render natively; only helper-mask arguments need substitution. Added cyclic/sparse-set parity control. New final commit/gates/push/CI supersede 45535e9a receipts, which remain recorded externally.

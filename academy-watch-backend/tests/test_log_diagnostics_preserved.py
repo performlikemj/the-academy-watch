@@ -205,3 +205,16 @@ def test_named_mapping_native_rendering_is_unchanged():
     expected = record.getMessage()
     assert EmailLogFilter().filter(record)
     assert record.getMessage() == expected
+
+
+def test_cyclic_and_sparse_set_arguments_preserve_native_repr():
+    cycle = []
+    cycle.append(cycle)
+    sparse = set(range(100))
+    for value in range(99):
+        sparse.remove(value)
+    for value in [cycle, sparse]:
+        record = logging.LogRecord("diagnostic", logging.ERROR, __file__, 1, "value=%r", (value,), None)
+        expected = record.getMessage()
+        assert EmailLogFilter().filter(record)
+        assert record.getMessage() == expected

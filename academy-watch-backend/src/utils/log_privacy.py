@@ -111,6 +111,26 @@ def _render(value):
         return f"[{_text(type(value).__name__)} could not be rendered]"
 
 
+def _has_helper_mask(value):
+    """Leave ordinary arguments native, including cycles and set ordering."""
+    pending, seen = [value], set()
+    while pending:
+        item = pending.pop()
+        if type(item) is _MaskedEmail:
+            return True
+        if type(item) not in (dict, OrderedDict, defaultdict, list, tuple, set, frozenset):
+            continue
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        else:
+            pending.extend(item)
+    return False
+
+
 class _Fields:
     def __init__(self):
         self.active = set()
@@ -188,7 +208,9 @@ class _Fields:
                     raise ValueError("invalid log format expansion")
             # Native numeric/scalar formatting is unchanged. Only helper values
             # need placeholders; don't inspect unused Gunicorn header atoms.
-            if isinstance(record.args, dict) and "%(" in template:
+            if not _has_helper_mask(record.args):
+                args = record.args
+            elif isinstance(record.args, dict) and "%(" in template:
                 args = _FormatMapping(record.args, self)
             elif isinstance(record.args, dict):
                 args = self.argument(record.args)
