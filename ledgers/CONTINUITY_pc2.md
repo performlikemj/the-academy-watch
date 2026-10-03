@@ -36,3 +36,7 @@
 - Verification final code: targeted224 PASS; real PostgreSQL23 PASS (16 equality combinations + budget/rebuild/orphan/shadow/cache-retention controls).
 - Final CLI rehearsal:6/5/5 dry0.499s; first2/2/2 0.285s; resume4/3/3 0.415s; repeat6/0/0 0.497s; undo5; restored6/5/5 0.487s. Scratch dropped again.
 - State: implementation/targeted proof complete; commit final fixes, then four cached gates and the touched browser spec once on this final head (fixture now models matches source). Push/ready PR/CI/duel delivery recorded externally.
+
+- Final40317628 full audit:5142 PASS/1716 SKIP/6 FAIL, all two legacy scout fixtures with orphan reported totals. Added raw match rows; source-filter control now explicitly proves provider wins before testing club-only category. Product code unchanged. Touched browser40317628:81 PASS/2 optional SKIP (1.8m); retained for this fixture-only successor.
+- Now: focused scout fixture validation, final fixture-only commit/push; four cached gates once at successor head; bounded CI and exact receipts in external hand-back.
+- Focused fixture verification: scout blueprint/watchlist102 PASS; ruff format/check PASS. No browser/product changes since81-PASS run.

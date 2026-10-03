@@ -11,6 +11,7 @@ import pytest
 from flask import Flask
 from src.models.follow import PlayerShadow
 from src.models.league import League, PlayerStatsCache, Team, UserAccount, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer
@@ -182,6 +183,27 @@ def local_watchlist_player(watchlist_app):
     db.session.flush()
     signed_id = -local.id
     local.api_player_id = signed_id
+    reporter = UserAccount(
+        email="watch-reporter@example.com", display_name="Watch reporter", display_name_lower="watch reporter"
+    )
+    db.session.add(reporter)
+    db.session.flush()
+    db.session.add_all(
+        PlayerMatchEntry(
+            player_api_id=signed_id,
+            season=2025,
+            source="self",
+            status="self_reported",
+            reported_by_user_id=reporter.id,
+            match_date=date(2025, 9, i + 1),
+            opponent=f"Opponent {i}",
+            home_away="home",
+            minutes=75,
+            goals=int(i == 0),
+            assists=int(i < 2),
+        )
+        for i in range(4)
+    )
     db.session.add(
         PlayerShadow(
             player_api_id=signed_id,
